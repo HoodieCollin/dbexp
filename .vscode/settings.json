@@ -1,0 +1,7 @@
+{
+  "cSpell.words": ["bumpalo", "chrono", "numer", "uninit"],
+  "[rust]": {
+    "editor.indentSize": "tabSize",
+    "editor.tabSize": 4
+  }
+}
