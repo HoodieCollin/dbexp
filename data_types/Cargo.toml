@@ -12,6 +12,10 @@
   rust_decimal = "1.35"
   serde        = { version = "1.0", features = ["derive"] }
 
+  [dependencies.bumpalo]
+    features = ["boxed", "collections", "serde", "std"]
+    version  = "3.16"
+
   [dependencies.uuid]
     features = [
       "fast-rng",          # Use a faster (but still sufficiently random) RNG
