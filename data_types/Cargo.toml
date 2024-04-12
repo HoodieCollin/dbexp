@@ -1,0 +1,22 @@
+[package]
+  edition = "2021"
+  name    = "data_types"
+  version = "0.1.0"
+
+[dependencies]
+  anyhow       = "1.0"
+  base62       = "2.0"
+  chrono       = "0.4"
+  fraction     = "0.15"
+  rand         = "0.8"
+  rust_decimal = "1.35"
+  serde        = { version = "1.0", features = ["derive"] }
+
+  [dependencies.uuid]
+    features = [
+      "fast-rng",          # Use a faster (but still sufficiently random) RNG
+      "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+      "serde",
+      "v4",                # Lets you generate random UUIDs
+    ]
+    version = "1.8.0"

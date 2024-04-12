@@ -3,26 +3,17 @@
   name    = "dbexp"
   version = "0.1.0"
 
+[workspace]
+  members = [
+    "hcl_queries",
+    "hcl_schemas",
+    "index_btree",
+    "index_hash",
+    "mem_columns",
+    "mem_graph",
+    "rest_api",
+    'data_types',
+  ]
+
 [dependencies]
-  anyhow       = "*"
-  base62       = "2.0"
-  chrono       = "0.4"
-  clap         = { version = "4.5.4", features = ["derive"] }
-  fraction     = "0.15"
-  rayon        = "1.10.0"
-  rmp-serde    = "1.1"
-  rust_decimal = "1.35"
-  serde        = { version = "1.0", features = ["derive"] }
-  serde_json   = "1.0"
-  toml         = "0.8"
-
-  # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-  [dependencies.uuid]
-    features = [
-      "fast-rng",          # Use a faster (but still sufficiently random) RNG
-      "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
-      "serde",
-      "v4",                # Lets you generate random UUIDs
-    ]
-    version = "1.8.0"
+  clap = { version = "4.5.4", features = ["derive"] }
