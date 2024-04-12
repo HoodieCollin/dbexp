@@ -1,6 +1,8 @@
+pub mod bytes;
 pub mod decimal;
 pub mod oid;
 pub mod ratio;
+pub mod text;
 pub mod timestamp;
 pub mod uid;
 
@@ -25,6 +27,6 @@ pub enum DataType {
     O32,
     Decimal,
     Timestamp,
-    String { max_length: u32 },
+    Text { max_length: u32 },
     Bytes { max_length: u32 },
 }
