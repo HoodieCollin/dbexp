@@ -1,9 +1,9 @@
 use base62::{decode, encode};
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Oid16(u16);
+pub struct O16(u16);
 
-impl Oid16 {
+impl O16 {
     pub fn new() -> Self {
         Self(rand::random::<u16>())
     }
@@ -25,25 +25,25 @@ impl Oid16 {
     }
 }
 
-impl std::fmt::Debug for Oid16 {
+impl std::fmt::Debug for O16 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", encode(self.0))
     }
 }
 
-impl std::fmt::Display for Oid16 {
+impl std::fmt::Display for O16 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", encode(self.0))
     }
 }
 
-impl serde::Serialize for Oid16 {
+impl serde::Serialize for O16 {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&encode(self.0))
     }
 }
 
-impl<'de> serde::Deserialize<'de> for Oid16 {
+impl<'de> serde::Deserialize<'de> for O16 {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
 
@@ -52,7 +52,7 @@ impl<'de> serde::Deserialize<'de> for Oid16 {
                 if v > u16::MAX as u128 {
                     Err(serde::de::Error::custom("value out of range"))
                 } else {
-                    Ok(Oid16(v as u16))
+                    Ok(O16(v as u16))
                 }
             }
             Err(e) => Err(serde::de::Error::custom(e.to_string())),
@@ -61,9 +61,9 @@ impl<'de> serde::Deserialize<'de> for Oid16 {
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Oid32(u32);
+pub struct O32(u32);
 
-impl Oid32 {
+impl O32 {
     pub fn new() -> Self {
         Self(rand::random::<u32>())
     }
@@ -85,25 +85,25 @@ impl Oid32 {
     }
 }
 
-impl std::fmt::Debug for Oid32 {
+impl std::fmt::Debug for O32 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", encode(self.0))
     }
 }
 
-impl std::fmt::Display for Oid32 {
+impl std::fmt::Display for O32 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", encode(self.0))
     }
 }
 
-impl serde::Serialize for Oid32 {
+impl serde::Serialize for O32 {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&encode(self.0))
     }
 }
 
-impl<'de> serde::Deserialize<'de> for Oid32 {
+impl<'de> serde::Deserialize<'de> for O32 {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
 
@@ -112,7 +112,7 @@ impl<'de> serde::Deserialize<'de> for Oid32 {
                 if v > u32::MAX as u128 {
                     Err(serde::de::Error::custom("value out of range"))
                 } else {
-                    Ok(Oid32(v as u32))
+                    Ok(O32(v as u32))
                 }
             }
             Err(e) => Err(serde::de::Error::custom(e.to_string())),
