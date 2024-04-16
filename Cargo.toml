@@ -4,6 +4,16 @@
   version = "0.1.0"
 
 [workspace]
+  default-members = [
+    "hcl_queries",
+    "hcl_schemas",
+    "index_btree",
+    "index_hash",
+    "mem_columns",
+    "mem_graph",
+    "rest_api",
+    'data_types',
+  ]
   members = [
     "hcl_queries",
     "hcl_schemas",
