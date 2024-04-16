@@ -177,7 +177,7 @@ impl DataValue {
     pub fn try_from_any<T: Into<ExpectedType>, V: Any>(
         ty: T,
         value: &V,
-        alloc: Option<&Arc<Bump>>,
+        alloc: &Arc<Bump>,
     ) -> Result<Self> {
         let expected_ty: ExpectedType = ty.into();
         let type_name = type_name::<V>();
@@ -212,11 +212,99 @@ impl DataValue {
                     }
 
                     return Ok(DataValue::Integer(*val));
+                } else if let Some(val) = value.downcast_ref::<&str>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_str(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<String>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_str(val.as_str())?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<i8>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<i16>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<i32>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<i64>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<i128>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<isize>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<u8>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<u16>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<u32>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<u64>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<u128>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
+                } else if let Some(val) = value.downcast_ref::<usize>() {
+                    return Ok(DataValue::Integer(
+                        integer::Integer::try_from_number(*val)?.try_to_fit(size)?,
+                    ));
                 }
             }
             DataType::Ratio => {
                 if let Some(val) = value.downcast_ref::<ratio::Ratio>() {
                     return Ok(DataValue::Ratio(*val));
+                } else if let Some(val) = value.downcast_ref::<&str>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_str(val)?));
+                } else if let Some(val) = value.downcast_ref::<String>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_str(val.as_str())?));
+                } else if let Some(val) = value.downcast_ref::<f32>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<f64>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<i8>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<i16>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<i32>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<i64>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<i128>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<isize>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<u8>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<u16>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<u32>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<u64>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<u128>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<usize>() {
+                    return Ok(DataValue::Ratio(ratio::Ratio::try_from_number(*val)?));
                 }
             }
             DataType::Uid => {
@@ -237,12 +325,53 @@ impl DataValue {
             DataType::Decimal => {
                 if let Some(val) = value.downcast_ref::<decimal::Decimal>() {
                     return Ok(DataValue::Decimal(*val));
+                } else if let Some(val) = value.downcast_ref::<&str>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_str(val)?));
+                } else if let Some(val) = value.downcast_ref::<String>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_str(
+                        val.as_str(),
+                    )?));
+                } else if let Some(val) = value.downcast_ref::<f32>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<f64>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<i8>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<i16>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<i32>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<i64>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<i128>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<isize>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<u8>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<u16>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<u32>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<u64>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<u128>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
+                } else if let Some(val) = value.downcast_ref::<usize>() {
+                    return Ok(DataValue::Decimal(decimal::Decimal::try_from_number(*val)?));
                 }
             }
             DataType::Timestamp => {
                 if let Some(val) = value.downcast_ref::<timestamp::Timestamp>() {
                     return Ok(DataValue::Timestamp(*val));
+                } else if let Some(val) = value.downcast_ref::<i64>() {
+                    return Ok(DataValue::Timestamp(timestamp::Timestamp::from_integer(
+                        *val,
+                    )?));
                 }
+
+                // TODO: other integer types
+                // TODO: from strings
             }
             DataType::Text(cap) => {
                 if let Some(val) = value.downcast_ref::<text::Text>() {
@@ -256,12 +385,8 @@ impl DataValue {
 
                     return Ok(DataValue::Text(val.clone()));
                 } else if let Some(val) = value.downcast_ref::<&str>() {
-                    let alloc = alloc.ok_or_else(|| anyhow::anyhow!("missing allocator"))?;
-
                     return Ok(DataValue::Text(text::Text::from_str(val, cap, alloc)?));
                 } else if let Some(val) = value.downcast_ref::<String>() {
-                    let alloc = alloc.ok_or_else(|| anyhow::anyhow!("missing allocator"))?;
-
                     return Ok(DataValue::Text(text::Text::from_str(val, cap, alloc)?));
                 }
             }
@@ -277,12 +402,8 @@ impl DataValue {
 
                     return Ok(DataValue::Bytes(val.clone()));
                 } else if let Some(val) = value.downcast_ref::<&[u8]>() {
-                    let alloc = alloc.ok_or_else(|| anyhow::anyhow!("missing allocator"))?;
-
                     return Ok(DataValue::Bytes(bytes::Bytes::from_slice(val, cap, alloc)?));
                 } else if let Some(val) = value.downcast_ref::<Vec<u8>>() {
-                    let alloc = alloc.ok_or_else(|| anyhow::anyhow!("missing allocator"))?;
-
                     return Ok(DataValue::Bytes(bytes::Bytes::from_slice(
                         &val, cap, alloc,
                     )?));
@@ -295,6 +416,75 @@ impl DataValue {
             expected_ty,
             type_name
         )
+    }
+
+    pub fn is_integer(&self) -> bool {
+        match self {
+            DataValue::Integer(_) => true,
+            DataValue::Ratio(r) => r.is_integer(),
+            DataValue::Decimal(d) => d.is_integer(),
+            _ => false,
+        }
+    }
+
+    pub fn is_float(&self) -> bool {
+        match self {
+            DataValue::Ratio(r) => !r.is_integer(),
+            DataValue::Decimal(d) => !d.is_integer(),
+            _ => false,
+        }
+    }
+
+    pub fn try_cast(&self, ty: impl Into<ExpectedType>) -> Result<Self> {
+        use DataType::{
+            Bool as BoolTy, Decimal as DecimalTy, Integer as IntegerTy, Ratio as RatioTy,
+        };
+        use DataValue::{Bool, Bytes, Decimal, Integer, Ratio, Text, Timestamp};
+
+        let expected_ty: ExpectedType = ty.into();
+        let ty = expected_ty.into_inner();
+
+        if self.get_type() == expected_ty {
+            return Ok(self.clone());
+        }
+
+        match ty {
+            BoolTy => match self {
+                Bool(_) => Ok(self.clone()),
+                Integer(i) => Ok(Bool(i.into_inner() != 0)),
+                Ratio(r) => Ok(Bool(r.is_integer() && r.numer() != &0)),
+                Decimal(d) => Ok(Bool(d.is_integer() && d.to_integer() != 0)),
+                Text(t) => Ok(Bool(!t.is_empty())),
+                Bytes(b) => Ok(Bool(!b.is_empty())),
+                _ => anyhow::bail!("cannot cast {:?} to bool", self),
+            },
+            IntegerTy(size) => match self {
+                Integer(i) => Ok(Self::Integer(i.try_to_fit(size)?)),
+                Ratio(r) => Ok(Self::Integer(
+                    integer::Integer::try_from_number(r.to_integer())?.try_to_fit(size)?,
+                )),
+                Decimal(d) => Ok(Self::Integer(
+                    integer::Integer::try_from_number(d.to_integer())?.try_to_fit(size)?,
+                )),
+                Timestamp(t) => Ok(Self::Integer(
+                    integer::Integer::try_from_number(t.to_integer())?.try_to_fit(size)?,
+                )),
+                _ => anyhow::bail!("cannot cast {:?} to integer", self),
+            },
+            RatioTy => match self {
+                Integer(i) => Self::try_ratio_from_number(i.into_inner()),
+                Ratio(_) => Ok(self.clone()),
+                Decimal(d) => Self::try_ratio_from_str(&d.to_string()),
+                _ => anyhow::bail!("cannot cast {:?} to ratio", self),
+            },
+            DecimalTy => match self {
+                Integer(i) => Self::try_decimal_from_number(i.into_inner()),
+                Ratio(r) => Self::try_decimal_from_str(&r.to_string()),
+                Decimal(_) => Ok(self.clone()),
+                _ => anyhow::bail!("cannot cast {:?} to decimal", self),
+            },
+            _ => anyhow::bail!("cannot cast {:?} to {:?}", self, ty),
+        }
     }
 }
 
@@ -441,5 +631,122 @@ impl From<text::Text> for DataValue {
 impl From<bytes::Bytes> for DataValue {
     fn from(value: bytes::Bytes) -> Self {
         DataValue::Bytes(value)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_casting() -> Result<()> {
+        let value = DataValue::try_integer_from_number(42i8)?;
+        let sized_up = value.try_cast(DataType::Integer(IntSize::X16))?;
+
+        match sized_up {
+            DataValue::Integer(i) => {
+                assert_eq!(i.size(), IntSize::X16);
+                assert_eq!(i.into_inner(), 42);
+            }
+            _ => anyhow::bail!("expected integer"),
+        }
+
+        let value = DataValue::try_integer_from_number(42i64)?;
+        let sized_down = value.try_cast(DataType::Integer(IntSize::X8))?;
+
+        match sized_down {
+            DataValue::Integer(i) => {
+                assert_eq!(i.size(), IntSize::X8);
+                assert_eq!(i.into_inner(), 42);
+            }
+            _ => anyhow::bail!("expected integer"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_from_any() -> Result<()> {
+        let alloc = Arc::new(Bump::new());
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42i8, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42i8)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42i16, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42i16)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42i32, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42i32)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42i64, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42i64)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42i128, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42i128)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42isize, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42isize)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42u8, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42u8)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42u16, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42u16)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42u32, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42u32)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42u64, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42u64)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42u128, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42u128)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &42usize, &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_number(42usize)?)
+        );
+
+        let value = DataValue::try_from_any(DataType::Integer(IntSize::X8), &"42", &alloc)?;
+        assert_eq!(
+            value,
+            DataValue::Integer(integer::Integer::try_from_str("42")?)
+        );
+
+        Ok(())
     }
 }

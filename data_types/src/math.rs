@@ -3,74 +3,13 @@ use fraction::CheckedAdd;
 
 use crate::{decimal, integer, ratio, timestamp};
 
-use super::{DataType, DataValue, ExpectedType};
+use super::{DataType, DataValue};
 use DataType::{
-    Bool as BoolTy, Decimal as DecimalTy, Integer as IntegerTy, Ratio as RatioTy,
-    Timestamp as TimestampTy,
+    Decimal as DecimalTy, Integer as IntegerTy, Ratio as RatioTy, Timestamp as TimestampTy,
 };
-use DataValue::{Bool, Bytes, Decimal, Integer, Ratio, Text, Timestamp};
+use DataValue::{Decimal, Integer, Ratio, Timestamp};
 
 impl DataValue {
-    pub fn is_integer(&self) -> bool {
-        match self {
-            Integer(_) => true,
-            Ratio(r) => r.is_integer(),
-            Decimal(d) => d.is_integer(),
-            _ => false,
-        }
-    }
-
-    pub fn is_float(&self) -> bool {
-        match self {
-            Ratio(r) => !r.is_integer(),
-            Decimal(d) => !d.is_integer(),
-            _ => false,
-        }
-    }
-
-    pub fn try_cast(&self, ty: impl Into<ExpectedType>) -> Result<Self> {
-        let ty: ExpectedType = ty.into();
-        let ty = ty.into_inner();
-
-        match ty {
-            BoolTy => match self {
-                Bool(_) => Ok(self.clone()),
-                Integer(i) => Ok(Bool(i.into_inner() != 0)),
-                Ratio(r) => Ok(Bool(r.is_integer() && r.numer() != &0)),
-                Decimal(d) => Ok(Bool(d.is_integer() && d.to_integer() != 0)),
-                Text(t) => Ok(Bool(!t.is_empty())),
-                Bytes(b) => Ok(Bool(!b.is_empty())),
-                _ => anyhow::bail!("cannot cast {:?} to bool", self),
-            },
-            IntegerTy(size) => match self {
-                Integer(_) => Ok(self.clone()),
-                Ratio(r) => Ok(Self::Integer(
-                    integer::Integer::try_from_number(r.to_integer())?.try_to_fit(size)?,
-                )),
-                Decimal(d) => Ok(Self::Integer(
-                    integer::Integer::try_from_number(d.to_integer())?.try_to_fit(size)?,
-                )),
-                Timestamp(t) => Ok(Self::Integer(
-                    integer::Integer::try_from_number(t.to_integer())?.try_to_fit(size)?,
-                )),
-                _ => anyhow::bail!("cannot cast {:?} to integer", self),
-            },
-            RatioTy => match self {
-                Integer(i) => Self::try_ratio_from_number(i.into_inner()),
-                Ratio(_) => Ok(self.clone()),
-                Decimal(d) => Self::try_ratio_from_str(&d.to_string()),
-                _ => anyhow::bail!("cannot cast {:?} to ratio", self),
-            },
-            DecimalTy => match self {
-                Integer(i) => Self::try_decimal_from_number(i.into_inner()),
-                Ratio(r) => Self::try_decimal_from_str(&r.to_string()),
-                Decimal(_) => Ok(self.clone()),
-                _ => anyhow::bail!("cannot cast {:?} to decimal", self),
-            },
-            _ => anyhow::bail!("cannot cast {:?} to {:?}", self, ty),
-        }
-    }
-
     pub fn try_add(&self, other: &DataValue) -> Result<DataValue> {
         if self.is_nil() || other.is_nil() {
             anyhow::bail!("cannot add nil value");
@@ -129,5 +68,41 @@ impl DataValue {
             }
             _ => anyhow::bail!("cannot add {:?} and {:?}", self, other),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_addition() -> Result<()> {
+        let a = DataValue::Integer(integer::Integer::try_from_number(1)?);
+        let b = DataValue::Integer(integer::Integer::try_from_number(2)?);
+        let c = a.try_add(&b)?;
+        assert_eq!(c, DataValue::Integer(integer::Integer::try_from_number(3)?));
+
+        let a = DataValue::Ratio(ratio::Ratio::try_from_parts(1, 2)?);
+        let b = DataValue::Ratio(ratio::Ratio::try_from_parts(1, 3)?);
+        let c = a.try_add(&b)?;
+        assert_eq!(c, DataValue::Ratio(ratio::Ratio::try_from_parts(5, 6)?));
+
+        let a = DataValue::Decimal(decimal::Decimal::try_from_number(1.0)?);
+        let b = DataValue::Decimal(decimal::Decimal::try_from_number(2.0)?);
+        let c = a.try_add(&b)?;
+        assert_eq!(
+            c,
+            DataValue::Decimal(decimal::Decimal::try_from_number(3.0)?)
+        );
+
+        let a = DataValue::Timestamp(timestamp::Timestamp::from_integer(1)?);
+        let b = DataValue::Timestamp(timestamp::Timestamp::from_integer(2)?);
+        let c = a.try_add(&b)?;
+        assert_eq!(
+            c,
+            DataValue::Timestamp(timestamp::Timestamp::from_integer(3)?)
+        );
+
+        Ok(())
     }
 }

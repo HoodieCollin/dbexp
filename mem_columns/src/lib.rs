@@ -24,7 +24,7 @@ impl MemColumn {
         match &value {
             None => self.cells.push_back(DataValue::Nil(self.kind.into())),
             Some(value) => {
-                let data = DataValue::try_from_any(self.kind, value, Some(&self.alloc))?;
+                let data = DataValue::try_from_any(self.kind, value, &self.alloc)?;
                 self.cells.push_back(data);
             }
         }
@@ -63,7 +63,7 @@ impl MemColumn {
         let old = match &value {
             None => self.cells.set(index, DataValue::Nil(self.kind.into())),
             Some(value) => {
-                let data = DataValue::try_from_any(self.kind, value, Some(&self.alloc))?;
+                let data = DataValue::try_from_any(self.kind, value, &self.alloc)?;
                 self.cells.set(index, data)
             }
         };

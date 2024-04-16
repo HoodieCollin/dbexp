@@ -36,8 +36,12 @@ impl Ratio {
     }
 
     #[inline(always)]
-    pub unsafe fn from_parts(numer: i64, denom: i64) -> Self {
-        Self(fraction::Ratio::new_raw(numer, denom))
+    pub fn try_from_parts(numer: i64, denom: i64) -> Result<Self> {
+        if denom == 0 {
+            anyhow::bail!("denominator cannot be zero");
+        }
+
+        Ok(Self(fraction::Ratio::new_raw(numer, denom)))
     }
 
     #[inline(always)]
