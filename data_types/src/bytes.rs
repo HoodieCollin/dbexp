@@ -1,95 +1,193 @@
-use anyhow::Result;
-use bumpalo::collections::Vec as BumpVec;
+use core::hash;
+use std::{alloc::Layout, ptr::NonNull, sync::Arc};
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Bytes<'bump> {
-    inner: BumpVec<'bump>,
-    max_capacity: u32,
+use anyhow::Result;
+use bumpalo::Bump;
+
+pub struct Bytes {
+    ptr: NonNull<u8>,
+    len: u32,
+    cap: u32,
+    alloc: Arc<Bump>,
 }
 
-impl<'bump> Bytes<'bump> {
-    pub fn new(bump: &'bump bumpalo::Bump, value: &[u8], max_capacity: u32) -> Result<Self> {
-        if value.len() > max_capacity as usize {
-            return Err(anyhow::anyhow!("Bytes buffer is full"));
+impl Bytes {
+    pub fn new(cap: u32, alloc: &Arc<Bump>) -> Self {
+        let layout = Layout::from_size_align(cap as usize, 1).expect("Invalid layout");
+        let alloc = Arc::clone(alloc);
+        let ptr = alloc.alloc_layout(layout);
+        Self {
+            ptr,
+            len: 0,
+            cap,
+            alloc,
+        }
+    }
+
+    pub unsafe fn from_parts(ptr: NonNull<u8>, len: u32, cap: u32, alloc: Arc<Bump>) -> Self {
+        Self {
+            ptr,
+            len,
+            cap,
+            alloc,
+        }
+    }
+
+    pub fn into_parts(self) -> (NonNull<u8>, u32, u32, Arc<Bump>) {
+        (self.ptr, self.len, self.cap, self.alloc)
+    }
+
+    pub fn from_slice(bytes: &[u8], cap: u32, alloc: &Arc<Bump>) -> Result<Self> {
+        if bytes.len() > cap as usize {
+            anyhow::bail!("Bytes buffer is too small for slice");
         }
 
-        let mut bytes = BumpVec::with_capacity_in(value.len(), bump);
-        bytes.extend_from_slice(value);
+        unsafe { Ok(Self::from_slice_unchecked(bytes, cap, alloc)) }
+    }
 
-        Ok(Self {
-            inner: bytes,
-            max_capacity,
-        })
+    pub unsafe fn from_slice_unchecked(bytes: &[u8], cap: u32, alloc: &Arc<Bump>) -> Self {
+        let mut buf = Self::new(cap, alloc);
+        buf.push_bytes(bytes)
+            .expect("Failed to create Bytes from slice");
+        buf
     }
 
     #[inline(always)]
-    pub fn from_bytes(bump: &'bump bumpalo::Bump, bytes: &[u8], max_capacity: u32) -> Result<Self> {
-        Self::new(bump, bytes, max_capacity)
+    pub fn as_ptr(&self) -> *mut u8 {
+        self.ptr.as_ptr()
     }
 
-    pub fn into_bytes(self) -> BumpVec<'bump, u8> {
-        self.inner
+    #[inline(always)]
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len as usize) }
     }
 
+    #[inline(always)]
+    pub fn as_slice_mut(&mut self) -> &mut [u8] {
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len as usize) }
+    }
+
+    #[inline(always)]
     pub fn len(&self) -> usize {
-        self.inner.len()
+        self.len as usize
     }
 
+    #[inline(always)]
     pub fn capacity(&self) -> usize {
-        self.inner.capacity()
+        self.cap as usize
     }
 
+    #[inline(always)]
     fn available(&self) -> usize {
-        self.inner.capacity() - self.inner.len()
+        self.capacity() - self.len()
     }
 
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.len() == 0
     }
 
+    #[inline(always)]
+    pub fn is_full(&self) -> bool {
+        self.len() == self.capacity()
+    }
+
+    #[inline(always)]
     pub fn clear(&mut self) {
-        self.inner.clear();
+        self.len = 0;
+    }
+
+    pub fn alloc(&self) -> &Arc<Bump> {
+        &self.alloc
     }
 
     pub fn push_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-        if bytes.len() > self.available() {
+        let val_len = bytes.len();
+
+        if val_len > self.available() {
             return Err(anyhow::anyhow!("Bytes buffer is full"));
         }
 
-        self.inner.push_str(std::str::from_utf8(bytes)?);
-    }
-
-    pub fn range_mut(&mut self, range: std::ops::Range<usize>) -> Result<&mut str> {
-        if range.end > self.len() {
-            return Err(anyhow::anyhow!("Index out of bounds"));
+        unsafe {
+            let dst = self.ptr.as_ptr().add(self.len as usize);
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, val_len);
+            self.len += val_len as u32;
         }
 
-        Ok(&mut self.inner[range])
+        Ok(())
     }
 }
 
-impl<'bump> std::ops::Deref for Bytes<'bump> {
-    type Target = BumpVec<'bump>;
+impl std::ops::Deref for Bytes {
+    type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.as_slice()
     }
 }
 
-impl<'bump> std::fmt::Debug for Bytes<'bump> {
+impl std::ops::DerefMut for Bytes {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_slice_mut()
+    }
+}
+
+impl AsRef<[u8]> for Bytes {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl AsMut<[u8]> for Bytes {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_slice_mut()
+    }
+}
+
+impl std::fmt::Debug for Bytes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.inner)
+        write!(f, "{:?}", self.as_slice())
     }
 }
 
-impl<'bump> std::fmt::Display for Bytes<'bump> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl<'bump> serde::Serialize for Bytes<'bump> {
+impl serde::Serialize for Bytes {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.inner)
+        serializer.serialize_bytes(self.as_slice())
+    }
+}
+
+impl Clone for Bytes {
+    fn clone(&self) -> Self {
+        let mut new = Self::new(self.cap, &self.alloc);
+        new.push_bytes(self.as_slice())
+            .expect("Failed to clone Bytes");
+
+        new
+    }
+}
+
+impl PartialEq for Bytes {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl Eq for Bytes {}
+
+impl PartialOrd for Bytes {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.len().partial_cmp(&other.len())
+    }
+}
+
+impl Ord for Bytes {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.len().cmp(&other.len())
+    }
+}
+
+impl hash::Hash for Bytes {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.as_slice().hash(state);
     }
 }

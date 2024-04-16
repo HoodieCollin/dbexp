@@ -34,6 +34,18 @@ impl Timestamp {
     pub fn to_be_bytes(&self) -> [u8; 8] {
         self.0.timestamp_millis().to_be_bytes()
     }
+
+    pub fn to_integer(&self) -> i64 {
+        self.0.timestamp_millis()
+    }
+
+    pub fn from_integer(timestamp: i64) -> Result<Self> {
+        if let Some(timestamp) = DateTime::from_timestamp_millis(timestamp) {
+            Ok(Self(timestamp))
+        } else {
+            anyhow::bail!("invalid timestamp")
+        }
+    }
 }
 
 impl ops::Deref for Timestamp {

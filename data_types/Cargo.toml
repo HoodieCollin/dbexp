@@ -4,17 +4,15 @@
   version = "0.1.0"
 
 [dependencies]
-  anyhow       = "1.0"
+  anyhow       = { workspace = true }
   base62       = "2.0"
+  bumpalo      = { workspace = true }
   chrono       = "0.4"
   fraction     = "0.15"
+  paste        = "1.0"
   rand         = "0.8"
   rust_decimal = "1.35"
-  serde        = { version = "1.0", features = ["derive"] }
-
-  [dependencies.bumpalo]
-    features = ["boxed", "collections", "serde", "std"]
-    version  = "3.16"
+  serde        = { workspace = true }
 
   [dependencies.uuid]
     features = [

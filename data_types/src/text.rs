@@ -1,118 +1,163 @@
+use std::{ptr::NonNull, sync::Arc};
+
+use super::bytes::Bytes;
 use anyhow::Result;
-use bumpalo::collections::{String as BumpString, Vec as BumpVec};
+use bumpalo::Bump;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Text<'bump> {
-    inner: BumpString<'bump>,
-    max_capacity: u32,
-}
+#[repr(transparent)]
+pub struct Text(Bytes);
 
-impl<'bump> Text<'bump> {
-    pub fn new(bump: &'bump bumpalo::Bump, value: &str, max_capacity: u32) -> Result<Self> {
-        if value.len() > max_capacity as usize {
-            return Err(anyhow::anyhow!("Text buffer is full"));
+impl Text {
+    pub fn new(cap: u32, alloc: &Arc<Bump>) -> Self {
+        Self(Bytes::new(cap, alloc))
+    }
+
+    pub unsafe fn from_parts(ptr: NonNull<u8>, len: u32, cap: u32, alloc: Arc<Bump>) -> Self {
+        Self(Bytes::from_parts(ptr, len, cap, alloc))
+    }
+
+    pub fn into_parts(self) -> (NonNull<u8>, u32, u32, Arc<Bump>) {
+        self.0.into_parts()
+    }
+
+    pub fn from_str(value: &str, cap: u32, alloc: &Arc<Bump>) -> Result<Self> {
+        if value.len() > cap as usize {
+            anyhow::bail!("Text buffer is too small for string");
         }
 
-        let mut inner = BumpString::with_capacity_in(max_capacity, bump);
-        inner.push_str(value);
-
-        Ok(Self {
-            inner,
-            max_capacity,
-        })
+        unsafe { Ok(Self::from_str_unchecked(value, cap, alloc)) }
     }
 
-    pub fn from_bytes(bump: &'bump bumpalo::Bump, bytes: &[u8], max_capacity: u32) -> Result<Self> {
-        if bytes.len() > max_capacity as usize {
-            return Err(anyhow::anyhow!("Text buffer is full"));
-        }
-
-        let s = std::str::from_utf8(bytes)?;
-
-        let mut inner = BumpString::with_capacity_in(max_capacity, bump);
-        inner.push_str(s);
-
-        Ok(Self {
-            inner,
-            max_capacity,
-        })
+    pub unsafe fn from_str_unchecked(value: &str, cap: u32, alloc: &Arc<Bump>) -> Self {
+        Self(Bytes::from_slice_unchecked(value.as_bytes(), cap, alloc))
     }
 
-    pub fn into_bytes(self) -> BumpVec<'bump, u8> {
-        self.inner.into_bytes()
+    pub fn as_ptr(&self) -> *mut u8 {
+        self.0.as_ptr()
     }
 
+    #[inline(always)]
     pub fn as_str(&self) -> &str {
-        &self.inner
+        unsafe {
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                self.as_ptr() as _,
+                self.len(),
+            ))
+        }
     }
 
+    #[inline(always)]
+    pub fn as_str_mut(&mut self) -> &mut str {
+        unsafe {
+            std::str::from_utf8_unchecked_mut(std::slice::from_raw_parts_mut(
+                self.as_ptr(),
+                self.len(),
+            ))
+        }
+    }
+
+    #[inline(always)]
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.as_ptr(), self.len()) }
+    }
+
+    #[inline(always)]
+    pub fn as_slice_mut(&mut self) -> &mut [u8] {
+        unsafe { std::slice::from_raw_parts_mut(self.as_ptr(), self.len()) }
+    }
+
+    #[inline(always)]
     pub fn len(&self) -> usize {
-        self.inner.len()
+        self.0.len()
     }
 
+    #[inline(always)]
     pub fn capacity(&self) -> usize {
-        self.inner.capacity()
+        self.0.capacity()
     }
 
+    #[inline(always)]
     fn available(&self) -> usize {
-        self.inner.capacity() - self.inner.len()
+        self.capacity() - self.len()
     }
 
+    #[inline(always)]
+    pub fn is_full(&self) -> bool {
+        self.len() == self.capacity()
+    }
+
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.len() == 0
     }
 
+    #[inline(always)]
     pub fn clear(&mut self) {
-        self.inner.clear();
+        self.0.clear();
+    }
+
+    pub fn alloc(&self) -> &Arc<Bump> {
+        self.0.alloc()
     }
 
     pub fn push_str(&mut self, value: &str) -> Result<()> {
-        if value.len() > self.available() {
-            return Err(anyhow::anyhow!("Text buffer is full"));
-        }
-
-        self.inner.push_str(value);
-    }
-
-    pub fn push_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-        if bytes.len() > self.available() {
-            return Err(anyhow::anyhow!("Text buffer is full"));
-        }
-
-        self.inner.push_str(std::str::from_utf8(bytes)?);
-    }
-
-    pub fn range_mut(&mut self, range: std::ops::Range<usize>) -> Result<&mut str> {
-        if range.end > self.len() {
-            return Err(anyhow::anyhow!("Index out of bounds"));
-        }
-
-        Ok(&mut self.inner[range])
+        self.0.push_bytes(value.as_bytes())
     }
 }
 
-impl<'bump> std::ops::Deref for Text<'bump> {
-    type Target = BumpString<'bump>;
+impl std::ops::Deref for Text {
+    type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.as_str()
     }
 }
 
-impl<'bump> std::fmt::Debug for Text<'bump> {
+impl std::ops::DerefMut for Text {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_str_mut()
+    }
+}
+
+impl AsRef<str> for Text {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsMut<str> for Text {
+    fn as_mut(&mut self) -> &mut str {
+        self.as_str_mut()
+    }
+}
+
+impl AsRef<[u8]> for Text {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl AsMut<[u8]> for Text {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_slice_mut()
+    }
+}
+
+impl std::fmt::Debug for Text {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.inner)
+        write!(f, "{:?}", self.as_str())
     }
 }
 
-impl<'bump> std::fmt::Display for Text<'bump> {
+impl std::fmt::Display for Text {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
+        write!(f, "{}", self.as_str())
     }
 }
 
-impl<'bump> serde::Serialize for Text<'bump> {
+impl serde::Serialize for Text {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.inner)
+        serializer.serialize_str(self.as_str())
     }
 }
