@@ -34,13 +34,12 @@ impl MemColumn {
 
     pub fn push_default(&mut self) {
         self.cells.push_back(match self.kind {
-            DataType::Bool => DataValue::Bool(false),
-            DataType::Integer(size) => DataValue::Integer(integer::Integer::new(size)),
-            DataType::Ratio => DataValue::Ratio(Default::default()),
-            DataType::Uid => DataValue::Uid(Default::default()),
             DataType::O16 => DataValue::O16(Default::default()),
             DataType::O32 => DataValue::O32(Default::default()),
-            DataType::Decimal => DataValue::Decimal(Default::default()),
+            DataType::O64 => DataValue::O64(Default::default()),
+            DataType::Bool => DataValue::Bool(false),
+            DataType::Integer(size) => DataValue::Integer(integer::Integer::new_default(size)),
+            DataType::Float => DataValue::Float(Default::default()),
             DataType::Timestamp => DataValue::Timestamp(Default::default()),
             DataType::Bytes(cap) => DataValue::Bytes(bytes::Bytes::new(cap, &self.alloc)),
             DataType::Text(cap) => DataValue::Text(text::Text::new(cap, &self.alloc)),

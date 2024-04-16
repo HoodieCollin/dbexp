@@ -4,21 +4,11 @@
   version = "0.1.0"
 
 [dependencies]
-  anyhow       = { workspace = true }
-  base62       = "2.0"
-  bumpalo      = { workspace = true }
-  chrono       = "0.4"
-  fraction     = "0.15"
-  paste        = "1.0"
-  rand         = "0.8"
-  rust_decimal = "1.35"
-  serde        = { workspace = true }
-
-  [dependencies.uuid]
-    features = [
-      "fast-rng",          # Use a faster (but still sufficiently random) RNG
-      "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
-      "serde",
-      "v4",                # Lets you generate random UUIDs
-    ]
-    version = "1.8.0"
+  anyhow  = { workspace = true }
+  base62  = { workspace = true }
+  bumpalo = { workspace = true }
+  chrono  = { workspace = true }
+  itoa    = { workspace = true }
+  rand    = { workspace = true }
+  ryu     = { workspace = true }
+  serde   = { workspace = true }

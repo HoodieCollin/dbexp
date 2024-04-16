@@ -1,5 +1,14 @@
 {
-  "cSpell.words": ["bumpalo", "chrono", "Hasher", "numer", "repr", "uninit"],
+  "cSpell.words": [
+    "bumpalo",
+    "chrono",
+    "Hasher",
+    "itoa",
+    "numer",
+    "repr",
+    "Strftime",
+    "uninit"
+  ],
   "[rust]": {
     "editor.indentSize": "tabSize",
     "editor.tabSize": 4

@@ -1,7 +1,12 @@
 use std::ops;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{
+    format::{DelayedFormat, StrftimeItems},
+    DateTime, Utc,
+};
+
+use crate::number::Number;
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Timestamp(DateTime<Utc>);
@@ -11,40 +16,49 @@ impl Timestamp {
         Self(Utc::now())
     }
 
-    pub fn from_le_bytes(bytes: [u8; 8]) -> Result<Self> {
-        if let Some(timestamp) = DateTime::from_timestamp_millis(i64::from_le_bytes(bytes)) {
+    // Not actually unsafe, but to conform with the other from_array methods
+    pub unsafe fn from_array(bytes: [u8; 8]) -> Self {
+        if let Some(timestamp) = DateTime::from_timestamp_millis(i64::from_ne_bytes(bytes)) {
+            Self(timestamp)
+        } else {
+            panic!("invalid timestamp")
+        }
+    }
+
+    pub fn into_array(&self) -> [u8; 8] {
+        self.0.timestamp_millis().to_ne_bytes()
+    }
+
+    pub fn as_i128(&self) -> i128 {
+        self.0.timestamp_millis() as i128
+    }
+
+    pub fn try_from_number<T: Number>(value: T) -> Result<Self> {
+        if let Some(timestamp) = DateTime::from_timestamp_millis(value.as_i64()?) {
             Ok(Self(timestamp))
         } else {
             anyhow::bail!("invalid timestamp")
         }
     }
 
-    pub fn from_be_bytes(bytes: [u8; 8]) -> Result<Self> {
-        if let Some(timestamp) = DateTime::from_timestamp_millis(i64::from_be_bytes(bytes)) {
-            Ok(Self(timestamp))
-        } else {
-            anyhow::bail!("invalid timestamp")
+    pub fn try_from_str(value: &str) -> Result<Self> {
+        DateTime::parse_from_rfc3339(value)
+            .map(|d| Self(d.with_timezone(&Utc)))
+            .map_err(|e| e.into())
+    }
+
+    pub fn try_from_slice(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != 8 {
+            anyhow::bail!("invalid timestamp length");
         }
+
+        let mut buf = [0; 8];
+        buf.copy_from_slice(bytes);
+        Ok(unsafe { Self::from_array(buf) })
     }
 
-    pub fn to_le_bytes(&self) -> [u8; 8] {
-        self.0.timestamp_millis().to_le_bytes()
-    }
-
-    pub fn to_be_bytes(&self) -> [u8; 8] {
-        self.0.timestamp_millis().to_be_bytes()
-    }
-
-    pub fn to_integer(&self) -> i64 {
-        self.0.timestamp_millis()
-    }
-
-    pub fn from_integer(timestamp: i64) -> Result<Self> {
-        if let Some(timestamp) = DateTime::from_timestamp_millis(timestamp) {
-            Ok(Self(timestamp))
-        } else {
-            anyhow::bail!("invalid timestamp")
-        }
+    pub fn as_str(&self) -> DelayedFormat<StrftimeItems> {
+        self.0.format("%d/%m/%Y %H:%M")
     }
 }
 

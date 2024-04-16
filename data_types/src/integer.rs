@@ -1,343 +1,143 @@
-use std::{any::TypeId, mem::size_of, ops, ptr};
+use std::{
+    mem::{self, size_of},
+    ptr,
+};
 
 use anyhow::Result;
 
-pub trait Number: Copy + 'static {
-    fn has_sign(&self) -> bool;
-}
-impl Number for i8 {
-    fn has_sign(&self) -> bool {
-        true
-    }
-}
-impl Number for i16 {
-    fn has_sign(&self) -> bool {
-        true
-    }
-}
-impl Number for i32 {
-    fn has_sign(&self) -> bool {
-        true
-    }
-}
-impl Number for i64 {
-    fn has_sign(&self) -> bool {
-        true
-    }
-}
-impl Number for i128 {
-    fn has_sign(&self) -> bool {
-        true
-    }
-}
-impl Number for isize {
-    fn has_sign(&self) -> bool {
-        true
-    }
-}
-impl Number for u8 {
-    fn has_sign(&self) -> bool {
-        false
-    }
-}
-impl Number for u16 {
-    fn has_sign(&self) -> bool {
-        false
-    }
-}
-impl Number for u32 {
-    fn has_sign(&self) -> bool {
-        false
-    }
-}
-impl Number for u64 {
-    fn has_sign(&self) -> bool {
-        false
-    }
-}
-impl Number for u128 {
-    fn has_sign(&self) -> bool {
-        false
-    }
-}
-impl Number for usize {
-    fn has_sign(&self) -> bool {
-        false
-    }
-}
+use crate::number::{IntSize, NumKind, Number};
 
-pub trait Signed: Copy + 'static {
-    fn copy_bytes(self, dst: &mut [u8]);
-}
-impl Signed for i8 {
-    fn copy_bytes(self, dst: &mut [u8]) {
-        dst.copy_from_slice(&self.to_ne_bytes());
-    }
-}
-impl Signed for i16 {
-    fn copy_bytes(self, dst: &mut [u8]) {
-        dst.copy_from_slice(&self.to_ne_bytes());
-    }
-}
-impl Signed for i32 {
-    fn copy_bytes(self, dst: &mut [u8]) {
-        dst.copy_from_slice(&self.to_ne_bytes());
-    }
-}
-impl Signed for i64 {
-    fn copy_bytes(self, dst: &mut [u8]) {
-        dst.copy_from_slice(&self.to_ne_bytes());
-    }
-}
-impl Signed for i128 {
-    fn copy_bytes(self, dst: &mut [u8]) {
-        dst.copy_from_slice(&self.to_ne_bytes());
-    }
-}
-impl Signed for isize {
-    fn copy_bytes(self, dst: &mut [u8]) {
-        dst.copy_from_slice(&self.to_ne_bytes());
-    }
-}
-
-pub struct IntegerMut<'a, T: Signed>(T, &'a mut [u8]);
-
-impl<'a, T: Signed> IntegerMut<'a, T> {
-    pub fn new(val: T, dest: &'a mut [u8]) -> Self {
-        Self(val, dest)
-    }
-}
-
-impl<T: Signed> ops::Deref for IntegerMut<'_, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T: Signed> ops::DerefMut for IntegerMut<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<T: Signed> Drop for IntegerMut<'_, T> {
-    fn drop(&mut self) {
-        self.0.copy_bytes(self.1);
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum IntSize {
-    X8,
-    X16,
-    X32,
-    X64,
-    X128,
-}
-
-impl IntSize {
-    pub fn ptr_size() -> Self {
-        match size_of::<isize>() {
-            1 => Self::X8,
-            2 => Self::X16,
-            4 => Self::X32,
-            8 => Self::X64,
-            16 => Self::X128,
-            _ => unreachable!(),
-        }
-    }
-
-    #[inline(always)]
-    pub fn byte_count(&self) -> usize {
-        match self {
-            Self::X8 => 1,
-            Self::X16 => 2,
-            Self::X32 => 4,
-            Self::X64 => 8,
-            Self::X128 => 16,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct Integer {
-    data: [u8; 16],
-    size: IntSize,
+#[derive(Debug, Clone, Copy)]
+pub enum Integer {
+    X8(i8),
+    X16(i16),
+    X32(i32),
+    X64(i64),
 }
 
 impl Integer {
-    pub fn new(size: IntSize) -> Self {
-        Self {
-            data: [0; 16],
-            size,
+    pub fn new(size: IntSize, initial: Option<i128>) -> Result<Self> {
+        Ok(match size {
+            IntSize::X8 => Self::X8(initial.unwrap_or(0).try_into()?),
+            IntSize::X16 => Self::X16(initial.unwrap_or(0).try_into()?),
+            IntSize::X32 => Self::X32(initial.unwrap_or(0).try_into()?),
+            IntSize::X64 => Self::X64(initial.unwrap_or(0).try_into()?),
+        })
+    }
+
+    pub fn new_default(size: IntSize) -> Self {
+        match size {
+            IntSize::X8 => Self::X8(0),
+            IntSize::X16 => Self::X16(0),
+            IntSize::X32 => Self::X32(0),
+            IntSize::X64 => Self::X64(0),
         }
     }
 
     #[inline(always)]
-    pub unsafe fn from_parts(data: [u8; 16], size: IntSize) -> Self {
-        Self { data, size }
+    pub unsafe fn from_array(data: [u8; 8], size: IntSize) -> Self {
+        match size {
+            IntSize::X8 => Self::X8(ptr::read_unaligned(data[0] as *const _)),
+            IntSize::X16 => Self::X16(ptr::read_unaligned(data[..2].as_ptr() as *const _)),
+            IntSize::X32 => Self::X32(ptr::read_unaligned(data[..4].as_ptr() as *const _)),
+            IntSize::X64 => Self::X64(ptr::read_unaligned(data[..8].as_ptr() as *const _)),
+        }
     }
 
     #[inline(always)]
-    pub fn into_parts(self) -> ([u8; 16], IntSize) {
-        (self.data, self.size)
+    pub fn into_array(self) -> ([u8; 8], IntSize) {
+        let mut data = [0; 8];
+        match self {
+            Self::X8(val) => unsafe {
+                data.as_mut_ptr()
+                    .copy_from_nonoverlapping(&val as *const _ as _, 1);
+
+                (data, IntSize::X8)
+            },
+            Self::X16(val) => unsafe {
+                data.as_mut_ptr()
+                    .copy_from_nonoverlapping(&val as *const _ as _, 2);
+
+                (data, IntSize::X16)
+            },
+            Self::X32(val) => unsafe {
+                data.as_mut_ptr()
+                    .copy_from_nonoverlapping(&val as *const _ as _, 4);
+
+                (data, IntSize::X32)
+            },
+            Self::X64(val) => unsafe {
+                data.as_mut_ptr()
+                    .copy_from_nonoverlapping(&val as *const _ as _, 8);
+
+                (data, IntSize::X64)
+            },
+        }
     }
 
     #[inline(always)]
     pub fn try_to_fit(&self, size: IntSize) -> Result<Self> {
-        unsafe {
-            match size {
-                IntSize::X8 => {
-                    let val: i8 = self.into_inner().try_into()?;
-                    Ok(Self::from_slice_unchecked(&val.to_ne_bytes(), size))
-                }
-                IntSize::X16 => {
-                    let val: i16 = self.into_inner().try_into()?;
-                    Ok(Self::from_slice_unchecked(&val.to_ne_bytes(), size))
-                }
-                IntSize::X32 => {
-                    let val: i32 = self.into_inner().try_into()?;
-                    Ok(Self::from_slice_unchecked(&val.to_ne_bytes(), size))
-                }
-                IntSize::X64 => {
-                    let val: i64 = self.into_inner().try_into()?;
-                    Ok(Self::from_slice_unchecked(&val.to_ne_bytes(), size))
-                }
-                IntSize::X128 => {
-                    let val: i128 = self.into_inner().try_into()?;
-                    Ok(Self::from_slice_unchecked(&val.to_ne_bytes(), size))
-                }
-            }
-        }
+        Ok(match size {
+            IntSize::X8 => Self::X8(self.as_i8()?),
+            IntSize::X16 => Self::X16(self.as_i16()?),
+            IntSize::X32 => Self::X32(self.as_i32()?),
+            IntSize::X64 => Self::X64(self.as_i64()?),
+        })
     }
 
     #[inline(always)]
     pub fn try_from_number<T: Number>(n: T) -> Result<Self> {
-        union Transmute<N: Number> {
-            n: N,
-            i8: i8,
-            i16: i16,
-            i32: i32,
-            i64: i64,
-            i128: i128,
-            isize: isize,
-            u8: u8,
-            u16: u16,
-            u32: u32,
-            u64: u64,
-            u128: u128,
-            usize: usize,
-        }
+        let normalized = n.as_i128()?;
 
-        let mut new: Integer;
+        let new: Integer;
+        let size = IntSize::for_value(normalized);
 
-        unsafe {
-            if n.has_sign() {
-                new = Self::new(match std::mem::size_of::<T>() {
-                    1 => IntSize::X8,
-                    2 => IntSize::X16,
-                    4 => IntSize::X32,
-                    8 => IntSize::X64,
-                    16 => IntSize::X128,
-                    _ => unreachable!(),
-                });
-
-                match TypeId::of::<T>() {
-                    t if t == TypeId::of::<i8>() => {
-                        *new.as_i8_mut_unchecked() = Transmute { n }.i8;
-                    }
-                    t if t == TypeId::of::<i16>() => {
-                        *new.as_i16_mut_unchecked() = Transmute { n }.i16;
-                    }
-                    t if t == TypeId::of::<i32>() => {
-                        *new.as_i32_mut_unchecked() = Transmute { n }.i32;
-                    }
-                    t if t == TypeId::of::<i64>() => {
-                        *new.as_i64_mut_unchecked() = Transmute { n }.i64;
-                    }
-                    t if t == TypeId::of::<i128>() => {
-                        *new.as_i128_mut_unchecked() = Transmute { n }.i128;
-                    }
-                    t if t == TypeId::of::<isize>() => {
-                        *new.as_isize_mut_unchecked() = Transmute { n }.isize;
-                    }
-                    _ => unreachable!(),
-                }
-            } else {
-                match TypeId::of::<T>() {
-                    t if t == TypeId::of::<u8>() => {
-                        let val = Transmute { n }.u8;
-
-                        if i8::MAX as u8 > val {
-                            new = Self::new(IntSize::X8);
-                            *new.as_i8_mut_unchecked() = val as i8;
-                        } else {
-                            new = Self::new(IntSize::X16);
-                            *new.as_i16_mut_unchecked() = val as i16;
-                        }
-                    }
-                    t if t == TypeId::of::<u16>() => {
-                        let val = Transmute { n }.u16;
-
-                        if i16::MAX as u16 > val {
-                            new = Self::new(IntSize::X16);
-                            *new.as_i16_mut_unchecked() = val as i16;
-                        } else {
-                            new = Self::new(IntSize::X32);
-                            *new.as_i32_mut_unchecked() = val as i32;
-                        }
-                    }
-                    t if t == TypeId::of::<u32>() => {
-                        let val = Transmute { n }.u32;
-
-                        if i32::MAX as u32 > val {
-                            new = Self::new(IntSize::X32);
-                            *new.as_i32_mut_unchecked() = val as i32;
-                        } else {
-                            new = Self::new(IntSize::X64);
-                            *new.as_i64_mut_unchecked() = val as i64;
-                        }
-                    }
-                    t if t == TypeId::of::<u64>() => {
-                        let val = Transmute { n }.u64;
-
-                        if i64::MAX as u64 > val {
-                            new = Self::new(IntSize::X64);
-                            *new.as_i64_mut_unchecked() = val as i64;
-                        } else {
-                            new = Self::new(IntSize::X128);
-                            *new.as_i128_mut_unchecked() = val as i128;
-                        }
-                    }
-                    t if t == TypeId::of::<u128>() => {
-                        let val = Transmute { n }.u128;
-
-                        if i128::MAX as u128 > val {
-                            new = Self::new(IntSize::X128);
-                            *new.as_i128_mut_unchecked() = val as i128;
-                        } else {
-                            anyhow::bail!("Value is too large for integer");
-                        }
-                    }
-                    t if t == TypeId::of::<usize>() => {
-                        let val = Transmute { n }.usize;
-
-                        if i128::MAX as usize > val {
-                            new = Self::new(IntSize::X128);
-                            *new.as_i128_mut_unchecked() = val as i128;
-                        } else {
-                            new = Self::new(IntSize::X64);
-                            *new.as_i64_mut_unchecked() = val as i64;
-                        }
-                    }
-                    _ => unreachable!(),
-                }
+        match T::KIND {
+            NumKind::I8 => unsafe {
+                new = Self::X8(n.assume_i8());
+            },
+            NumKind::I16 => unsafe {
+                new = Self::X16(n.assume_i16());
+            },
+            NumKind::I32 => unsafe {
+                new = Self::X32(n.assume_i32());
+            },
+            NumKind::I64 => unsafe {
+                new = Self::X64(n.assume_i64());
+            },
+            NumKind::ISize => unsafe {
+                new = Self::new(size, Some(n.assume_isize() as i128))?;
+            },
+            NumKind::I128 => unsafe {
+                new = Self::new(size, Some(n.assume_i128()))?;
+            },
+            NumKind::U8 => unsafe {
+                new = Self::new(size, Some(n.assume_u8() as i128))?;
+            },
+            NumKind::U16 => unsafe {
+                new = Self::new(size, Some(n.assume_u16() as i128))?;
+            },
+            NumKind::U32 => unsafe {
+                new = Self::new(size, Some(n.assume_u32() as i128))?;
+            },
+            NumKind::U64 => unsafe {
+                new = Self::new(size, Some(n.assume_u64() as i128))?;
+            },
+            NumKind::USize => unsafe {
+                new = Self::new(size, Some(n.assume_usize() as i128))?;
+            },
+            NumKind::U128 => unsafe {
+                new = Self::new(size, Some(n.assume_u128() as i128))?;
+            },
+            NumKind::F32 => {
+                new = Self::new(size, Some(normalized))?;
             }
-
-            Ok(new)
+            NumKind::F64 => {
+                new = Self::new(size, Some(normalized))?;
+            }
         }
+
+        Ok(new)
     }
 
     pub fn try_from_str(s: &str) -> Result<Self> {
@@ -346,86 +146,97 @@ impl Integer {
 
     #[inline(always)]
     pub fn size(&self) -> IntSize {
-        self.size
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_i8_unchecked(&self) -> i8 {
-        ptr::read_unaligned(self.data.as_ptr() as _)
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_i8_mut_unchecked(&mut self) -> IntegerMut<i8> {
-        let val = self.as_i8_unchecked();
-        IntegerMut::new(val, &mut self.data[..size_of::<i8>()])
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_i16_unchecked(&self) -> i16 {
-        ptr::read_unaligned(self.data.as_ptr() as _)
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_i16_mut_unchecked(&mut self) -> IntegerMut<i16> {
-        let val = self.as_i16_unchecked();
-        IntegerMut::new(val, &mut self.data[..size_of::<i16>()])
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_i32_unchecked(&self) -> i32 {
-        ptr::read_unaligned(self.data.as_ptr() as _)
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_i32_mut_unchecked(&mut self) -> IntegerMut<i32> {
-        let val = self.as_i32_unchecked();
-        IntegerMut::new(val, &mut self.data[..size_of::<i32>()])
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_i64_unchecked(&self) -> i64 {
-        ptr::read_unaligned(self.data.as_ptr() as _)
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_i64_mut_unchecked(&mut self) -> IntegerMut<i64> {
-        let val = self.as_i64_unchecked();
-        IntegerMut::new(val, &mut self.data[..size_of::<i64>()])
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_i128_unchecked(&self) -> i128 {
-        ptr::read_unaligned(self.data.as_ptr() as _)
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_i128_mut_unchecked(&mut self) -> IntegerMut<i128> {
-        let val = self.as_i128_unchecked();
-        IntegerMut::new(val, &mut self.data[..size_of::<i128>()])
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_isize_unchecked(&self) -> isize {
-        ptr::read_unaligned(self.data.as_ptr() as _)
-    }
-
-    #[inline(always)]
-    pub unsafe fn as_isize_mut_unchecked(&mut self) -> IntegerMut<isize> {
-        let val = self.as_isize_unchecked();
-        IntegerMut::new(val, &mut self.data[..size_of::<isize>()])
-    }
-
-    pub fn into_inner(self) -> i128 {
-        match self.size {
-            IntSize::X8 => unsafe { self.as_i8_unchecked() as i128 },
-            IntSize::X16 => unsafe { self.as_i16_unchecked() as i128 },
-            IntSize::X32 => unsafe { self.as_i32_unchecked() as i128 },
-            IntSize::X64 => unsafe { self.as_i64_unchecked() as i128 },
-            IntSize::X128 => unsafe { self.as_i128_unchecked() },
+        match self {
+            Self::X8(_) => IntSize::X8,
+            Self::X16(_) => IntSize::X16,
+            Self::X32(_) => IntSize::X32,
+            Self::X64(_) => IntSize::X64,
         }
     }
 
-    pub fn from_slice(bytes: &[u8], size: IntSize) -> Result<Self> {
+    #[inline(always)]
+    pub fn as_i8(&self) -> Result<i8> {
+        Ok(match self {
+            Self::X8(val) => *val,
+            Self::X16(val) => (*val).try_into()?,
+            Self::X32(val) => (*val).try_into()?,
+            Self::X64(val) => (*val).try_into()?,
+        })
+    }
+
+    #[inline(always)]
+    pub fn as_i8_mut(&mut self) -> Result<&mut i8> {
+        Ok(match self {
+            Self::X8(val) => val,
+            _ => anyhow::bail!("Integer is not i8"),
+        })
+    }
+
+    #[inline(always)]
+    pub fn as_i16(&self) -> Result<i16> {
+        Ok(match self {
+            Self::X8(val) => (*val).try_into()?,
+            Self::X16(val) => *val,
+            Self::X32(val) => (*val).try_into()?,
+            Self::X64(val) => (*val).try_into()?,
+        })
+    }
+
+    #[inline(always)]
+    pub fn as_i16_mut(&mut self) -> Result<&mut i16> {
+        Ok(match self {
+            Self::X16(val) => val,
+            _ => anyhow::bail!("Integer is not i16"),
+        })
+    }
+
+    #[inline(always)]
+    pub fn as_i32(&self) -> Result<i32> {
+        Ok(match self {
+            Self::X8(val) => (*val).try_into()?,
+            Self::X16(val) => (*val).try_into()?,
+            Self::X32(val) => *val,
+            Self::X64(val) => (*val).try_into()?,
+        })
+    }
+
+    #[inline(always)]
+    pub fn as_i32_mut(&mut self) -> Result<&mut i32> {
+        Ok(match self {
+            Self::X32(val) => val,
+            _ => anyhow::bail!("Integer is not i32"),
+        })
+    }
+
+    #[inline(always)]
+    pub fn as_i64(&self) -> Result<i64> {
+        Ok(match self {
+            Self::X8(val) => (*val).try_into()?,
+            Self::X16(val) => (*val).try_into()?,
+            Self::X32(val) => (*val).try_into()?,
+            Self::X64(val) => *val,
+        })
+    }
+
+    #[inline(always)]
+    pub fn as_i64_mut(&mut self) -> Result<&mut i64> {
+        Ok(match self {
+            Self::X64(val) => val,
+            _ => anyhow::bail!("Integer is not i64"),
+        })
+    }
+
+    #[inline(always)]
+    pub fn as_i128(&self) -> i128 {
+        match self {
+            Self::X8(val) => i128::from(*val),
+            Self::X16(val) => i128::from(*val),
+            Self::X32(val) => i128::from(*val),
+            Self::X64(val) => i128::from(*val),
+        }
+    }
+
+    pub fn try_from_slice(bytes: &[u8], size: IntSize) -> Result<Self> {
         if size.byte_count() != bytes.len() {
             anyhow::bail!("Slice length does not match integer size");
         }
@@ -434,141 +245,73 @@ impl Integer {
     }
 
     pub unsafe fn from_slice_unchecked(bytes: &[u8], size: IntSize) -> Self {
-        let mut data = [0; 16];
+        let mut data = [0; 8];
         data.as_mut_ptr()
             .copy_from_nonoverlapping(bytes.as_ptr() as _, size.byte_count());
 
-        Self { data, size }
-    }
-
-    #[inline(always)]
-    pub fn as_slice(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.data.as_ptr(), self.size.byte_count()) }
-    }
-
-    #[inline(always)]
-    pub fn as_slice_mut(&mut self) -> &mut [u8] {
-        unsafe { std::slice::from_raw_parts_mut(self.data.as_mut_ptr(), self.size.byte_count()) }
+        Self::from_array(data, size)
     }
 
     #[inline(always)]
     pub fn is_zero(&self) -> bool {
-        match self.size {
-            IntSize::X8 => unsafe { self.as_i8_unchecked() == 0 },
-            IntSize::X16 => unsafe { self.as_i16_unchecked() == 0 },
-            IntSize::X32 => unsafe { self.as_i32_unchecked() == 0 },
-            IntSize::X64 => unsafe { self.as_i64_unchecked() == 0 },
-            IntSize::X128 => unsafe { self.as_i128_unchecked() == 0 },
+        match self {
+            Self::X8(val) => *val == 0,
+            Self::X16(val) => *val == 0,
+            Self::X32(val) => *val == 0,
+            Self::X64(val) => *val == 0,
         }
     }
 
     #[inline(always)]
     pub fn is_negative(&self) -> bool {
-        match self.size {
-            IntSize::X8 => unsafe { self.as_i8_unchecked() < 0 },
-            IntSize::X16 => unsafe { self.as_i16_unchecked() < 0 },
-            IntSize::X32 => unsafe { self.as_i32_unchecked() < 0 },
-            IntSize::X64 => unsafe { self.as_i64_unchecked() < 0 },
-            IntSize::X128 => unsafe { self.as_i128_unchecked() < 0 },
-        }
-    }
-}
-
-impl std::fmt::Debug for Integer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unsafe {
-            match self.size {
-                IntSize::X8 => f.debug_tuple("I8").field(&self.as_i8_unchecked()).finish(),
-                IntSize::X16 => f
-                    .debug_tuple("I16")
-                    .field(&self.as_i16_unchecked())
-                    .finish(),
-                IntSize::X32 => f
-                    .debug_tuple("I32")
-                    .field(&self.as_i32_unchecked())
-                    .finish(),
-                IntSize::X64 => f
-                    .debug_tuple("I64")
-                    .field(&self.as_i64_unchecked())
-                    .finish(),
-                IntSize::X128 => f
-                    .debug_tuple("I128")
-                    .field(&self.as_i128_unchecked())
-                    .finish(),
-            }
+        match self {
+            Self::X8(val) => *val < 0,
+            Self::X16(val) => *val < 0,
+            Self::X32(val) => *val < 0,
+            Self::X64(val) => *val < 0,
         }
     }
 }
 
 impl std::fmt::Display for Integer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unsafe {
-            match self.size {
-                IntSize::X8 => write!(f, "{}", self.as_i8_unchecked()),
-                IntSize::X16 => write!(f, "{}", self.as_i16_unchecked()),
-                IntSize::X32 => write!(f, "{}", self.as_i32_unchecked()),
-                IntSize::X64 => write!(f, "{}", self.as_i64_unchecked()),
-                IntSize::X128 => write!(f, "{}", self.as_i128_unchecked()),
-            }
+        match self {
+            Self::X8(val) => write!(f, "{}", val),
+            Self::X16(val) => write!(f, "{}", val),
+            Self::X32(val) => write!(f, "{}", val),
+            Self::X64(val) => write!(f, "{}", val),
         }
     }
 }
 
 impl serde::Serialize for Integer {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        unsafe {
-            match self.size {
-                IntSize::X8 => serializer.serialize_i8(self.as_i8_unchecked()),
-                IntSize::X16 => serializer.serialize_i16(self.as_i16_unchecked()),
-                IntSize::X32 => serializer.serialize_i32(self.as_i32_unchecked()),
-                IntSize::X64 => serializer.serialize_i64(self.as_i64_unchecked()),
-                IntSize::X128 => serializer.serialize_i128(self.as_i128_unchecked()),
-            }
+        match self {
+            Self::X8(val) => serializer.serialize_i8(*val),
+            Self::X16(val) => serializer.serialize_i16(*val),
+            Self::X32(val) => serializer.serialize_i32(*val),
+            Self::X64(val) => serializer.serialize_i64(*val),
         }
     }
 }
 
 impl PartialEq for Integer {
     fn eq(&self, other: &Self) -> bool {
-        unsafe {
-            match self.size {
-                IntSize::X8 => match other.size {
-                    IntSize::X8 => self.as_i8_unchecked() == other.as_i8_unchecked(),
-                    IntSize::X16 => self.as_i8_unchecked() as i16 == other.as_i16_unchecked(),
-                    IntSize::X32 => self.as_i8_unchecked() as i32 == other.as_i32_unchecked(),
-                    IntSize::X64 => self.as_i8_unchecked() as i64 == other.as_i64_unchecked(),
-                    IntSize::X128 => self.as_i8_unchecked() as i128 == other.as_i128_unchecked(),
-                },
-                IntSize::X16 => match other.size {
-                    IntSize::X8 => self.as_i16_unchecked() == other.as_i8_unchecked() as i16,
-                    IntSize::X16 => self.as_i16_unchecked() == other.as_i16_unchecked(),
-                    IntSize::X32 => self.as_i16_unchecked() as i32 == other.as_i32_unchecked(),
-                    IntSize::X64 => self.as_i16_unchecked() as i64 == other.as_i64_unchecked(),
-                    IntSize::X128 => self.as_i16_unchecked() as i128 == other.as_i128_unchecked(),
-                },
-                IntSize::X32 => match other.size {
-                    IntSize::X8 => self.as_i32_unchecked() == other.as_i8_unchecked() as i32,
-                    IntSize::X16 => self.as_i32_unchecked() == other.as_i16_unchecked() as i32,
-                    IntSize::X32 => self.as_i32_unchecked() == other.as_i32_unchecked(),
-                    IntSize::X64 => self.as_i32_unchecked() as i64 == other.as_i64_unchecked(),
-                    IntSize::X128 => self.as_i32_unchecked() as i128 == other.as_i128_unchecked(),
-                },
-                IntSize::X64 => match other.size {
-                    IntSize::X8 => self.as_i64_unchecked() == other.as_i8_unchecked() as i64,
-                    IntSize::X16 => self.as_i64_unchecked() == other.as_i16_unchecked() as i64,
-                    IntSize::X32 => self.as_i64_unchecked() == other.as_i32_unchecked() as i64,
-                    IntSize::X64 => self.as_i64_unchecked() == other.as_i64_unchecked(),
-                    IntSize::X128 => self.as_i64_unchecked() as i128 == other.as_i128_unchecked(),
-                },
-                IntSize::X128 => match other.size {
-                    IntSize::X8 => self.as_i128_unchecked() == other.as_i8_unchecked() as i128,
-                    IntSize::X16 => self.as_i128_unchecked() == other.as_i16_unchecked() as i128,
-                    IntSize::X32 => self.as_i128_unchecked() == other.as_i32_unchecked() as i128,
-                    IntSize::X64 => self.as_i128_unchecked() == other.as_i64_unchecked() as i128,
-                    IntSize::X128 => self.as_i128_unchecked() == other.as_i128_unchecked(),
-                },
-            }
-        }
+        let a = match *self {
+            Self::X8(val) => val as i128,
+            Self::X16(val) => val as i128,
+            Self::X32(val) => val as i128,
+            Self::X64(val) => val as i128,
+        };
+
+        let b = match *other {
+            Self::X8(val) => val as i128,
+            Self::X16(val) => val as i128,
+            Self::X32(val) => val as i128,
+            Self::X64(val) => val as i128,
+        };
+
+        a == b
     }
 }
 
@@ -576,170 +319,52 @@ impl Eq for Integer {}
 
 impl std::hash::Hash for Integer {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        unsafe {
-            match self.size {
-                IntSize::X8 => self.as_i8_unchecked().hash(state),
-                IntSize::X16 => self.as_i16_unchecked().hash(state),
-                IntSize::X32 => self.as_i32_unchecked().hash(state),
-                IntSize::X64 => self.as_i64_unchecked().hash(state),
-                IntSize::X128 => self.as_i128_unchecked().hash(state),
-            }
+        match self {
+            Self::X8(val) => val.hash(state),
+            Self::X16(val) => val.hash(state),
+            Self::X32(val) => val.hash(state),
+            Self::X64(val) => val.hash(state),
         }
     }
 }
 
 impl PartialOrd for Integer {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        unsafe {
-            match self.size {
-                IntSize::X8 => match other.size {
-                    IntSize::X8 => (self.as_i8_unchecked()).partial_cmp(&other.as_i8_unchecked()),
-                    IntSize::X16 => {
-                        (self.as_i8_unchecked() as i16).partial_cmp(&other.as_i16_unchecked())
-                    }
-                    IntSize::X32 => {
-                        (self.as_i8_unchecked() as i32).partial_cmp(&other.as_i32_unchecked())
-                    }
-                    IntSize::X64 => {
-                        (self.as_i8_unchecked() as i64).partial_cmp(&other.as_i64_unchecked())
-                    }
-                    IntSize::X128 => {
-                        (self.as_i8_unchecked() as i128).partial_cmp(&other.as_i128_unchecked())
-                    }
-                },
-                IntSize::X16 => match other.size {
-                    IntSize::X8 => {
-                        (self.as_i16_unchecked()).partial_cmp(&(other.as_i8_unchecked() as i16))
-                    }
-                    IntSize::X16 => {
-                        (self.as_i16_unchecked()).partial_cmp(&other.as_i16_unchecked())
-                    }
-                    IntSize::X32 => {
-                        (self.as_i16_unchecked() as i32).partial_cmp(&other.as_i32_unchecked())
-                    }
-                    IntSize::X64 => {
-                        (self.as_i16_unchecked() as i64).partial_cmp(&other.as_i64_unchecked())
-                    }
-                    IntSize::X128 => {
-                        (self.as_i16_unchecked() as i128).partial_cmp(&other.as_i128_unchecked())
-                    }
-                },
-                IntSize::X32 => {
-                    match other.size {
-                        IntSize::X8 => {
-                            (self.as_i32_unchecked()).partial_cmp(&(other.as_i8_unchecked() as i32))
-                        }
-                        IntSize::X16 => (self.as_i32_unchecked())
-                            .partial_cmp(&(other.as_i16_unchecked() as i32)),
-                        IntSize::X32 => {
-                            (self.as_i32_unchecked()).partial_cmp(&other.as_i32_unchecked())
-                        }
-                        IntSize::X64 => {
-                            (self.as_i32_unchecked() as i64).partial_cmp(&other.as_i64_unchecked())
-                        }
-                        IntSize::X128 => (self.as_i32_unchecked() as i128)
-                            .partial_cmp(&other.as_i128_unchecked()),
-                    }
-                }
-                IntSize::X64 => {
-                    match other.size {
-                        IntSize::X8 => {
-                            (self.as_i64_unchecked()).partial_cmp(&(other.as_i8_unchecked() as i64))
-                        }
-                        IntSize::X16 => (self.as_i64_unchecked())
-                            .partial_cmp(&(other.as_i16_unchecked() as i64)),
-                        IntSize::X32 => (self.as_i64_unchecked())
-                            .partial_cmp(&(other.as_i32_unchecked() as i64)),
-                        IntSize::X64 => {
-                            (self.as_i64_unchecked()).partial_cmp(&other.as_i64_unchecked())
-                        }
-                        IntSize::X128 => (self.as_i64_unchecked() as i128)
-                            .partial_cmp(&other.as_i128_unchecked()),
-                    }
-                }
-                IntSize::X128 => {
-                    match other.size {
-                        IntSize::X8 => (self.as_i128_unchecked())
-                            .partial_cmp(&(other.as_i8_unchecked() as i128)),
-                        IntSize::X16 => (self.as_i128_unchecked())
-                            .partial_cmp(&(other.as_i16_unchecked() as i128)),
-                        IntSize::X32 => (self.as_i128_unchecked())
-                            .partial_cmp(&(other.as_i32_unchecked() as i128)),
-                        IntSize::X64 => (self.as_i128_unchecked())
-                            .partial_cmp(&(other.as_i64_unchecked() as i128)),
-                        IntSize::X128 => {
-                            (self.as_i128_unchecked()).partial_cmp(&other.as_i128_unchecked())
-                        }
-                    }
-                }
-            }
-        }
+        let a = match *self {
+            Self::X8(val) => val as i128,
+            Self::X16(val) => val as i128,
+            Self::X32(val) => val as i128,
+            Self::X64(val) => val as i128,
+        };
+
+        let b = match *other {
+            Self::X8(val) => val as i128,
+            Self::X16(val) => val as i128,
+            Self::X32(val) => val as i128,
+            Self::X64(val) => val as i128,
+        };
+
+        a.partial_cmp(&b)
     }
 }
 
 impl Ord for Integer {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        unsafe {
-            match self.size {
-                IntSize::X8 => match other.size {
-                    IntSize::X8 => (self.as_i8_unchecked()).cmp(&other.as_i8_unchecked()),
-                    IntSize::X16 => (self.as_i8_unchecked() as i16).cmp(&other.as_i16_unchecked()),
-                    IntSize::X32 => (self.as_i8_unchecked() as i32).cmp(&other.as_i32_unchecked()),
-                    IntSize::X64 => (self.as_i8_unchecked() as i64).cmp(&other.as_i64_unchecked()),
-                    IntSize::X128 => {
-                        (self.as_i8_unchecked() as i128).cmp(&other.as_i128_unchecked())
-                    }
-                },
-                IntSize::X16 => match other.size {
-                    IntSize::X8 => (self.as_i16_unchecked()).cmp(&(other.as_i8_unchecked() as i16)),
-                    IntSize::X16 => (self.as_i16_unchecked()).cmp(&other.as_i16_unchecked()),
-                    IntSize::X32 => (self.as_i16_unchecked() as i32).cmp(&other.as_i32_unchecked()),
-                    IntSize::X64 => (self.as_i16_unchecked() as i64).cmp(&other.as_i64_unchecked()),
-                    IntSize::X128 => {
-                        (self.as_i16_unchecked() as i128).cmp(&other.as_i128_unchecked())
-                    }
-                },
-                IntSize::X32 => match other.size {
-                    IntSize::X8 => (self.as_i32_unchecked()).cmp(&(other.as_i8_unchecked() as i32)),
-                    IntSize::X16 => {
-                        (self.as_i32_unchecked()).cmp(&(other.as_i16_unchecked() as i32))
-                    }
-                    IntSize::X32 => (self.as_i32_unchecked()).cmp(&other.as_i32_unchecked()),
-                    IntSize::X64 => (self.as_i32_unchecked() as i64).cmp(&other.as_i64_unchecked()),
-                    IntSize::X128 => {
-                        (self.as_i32_unchecked() as i128).cmp(&other.as_i128_unchecked())
-                    }
-                },
-                IntSize::X64 => match other.size {
-                    IntSize::X8 => (self.as_i64_unchecked()).cmp(&(other.as_i8_unchecked() as i64)),
-                    IntSize::X16 => {
-                        (self.as_i64_unchecked()).cmp(&(other.as_i16_unchecked() as i64))
-                    }
-                    IntSize::X32 => {
-                        (self.as_i64_unchecked()).cmp(&(other.as_i32_unchecked() as i64))
-                    }
-                    IntSize::X64 => (self.as_i64_unchecked()).cmp(&other.as_i64_unchecked()),
-                    IntSize::X128 => {
-                        (self.as_i64_unchecked() as i128).cmp(&other.as_i128_unchecked())
-                    }
-                },
-                IntSize::X128 => match other.size {
-                    IntSize::X8 => {
-                        (self.as_i128_unchecked()).cmp(&(other.as_i8_unchecked() as i128))
-                    }
-                    IntSize::X16 => {
-                        (self.as_i128_unchecked()).cmp(&(other.as_i16_unchecked() as i128))
-                    }
-                    IntSize::X32 => {
-                        (self.as_i128_unchecked()).cmp(&(other.as_i32_unchecked() as i128))
-                    }
-                    IntSize::X64 => {
-                        (self.as_i128_unchecked()).cmp(&(other.as_i64_unchecked() as i128))
-                    }
-                    IntSize::X128 => (self.as_i128_unchecked()).cmp(&other.as_i128_unchecked()),
-                },
-            }
-        }
+        let a = match *self {
+            Self::X8(val) => val as i128,
+            Self::X16(val) => val as i128,
+            Self::X32(val) => val as i128,
+            Self::X64(val) => val as i128,
+        };
+
+        let b = match *other {
+            Self::X8(val) => val as i128,
+            Self::X16(val) => val as i128,
+            Self::X32(val) => val as i128,
+            Self::X64(val) => val as i128,
+        };
+
+        a.cmp(&b)
     }
 }
 
@@ -748,104 +373,88 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_integer() {
-        let mut integer = Integer::new(IntSize::X8);
+    fn test_integer() -> Result<()> {
+        let mut integer = Integer::new(IntSize::X8, None)?;
         assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), true);
         assert_eq!(integer.is_negative(), false);
 
-        unsafe {
-            *integer.as_i8_mut_unchecked() = i8::MAX;
-        }
-        assert_eq!(integer.into_inner(), i8::MAX as i128);
+        *integer.as_i8_mut()? = i8::MAX;
+        assert_eq!(integer.as_i128(), i8::MAX as i128);
 
-        let mut integer = Integer::new(IntSize::X16);
+        let mut integer = Integer::new(IntSize::X16, None)?;
         assert_eq!(integer.size(), IntSize::X16);
         assert_eq!(integer.is_zero(), true);
         assert_eq!(integer.is_negative(), false);
 
-        unsafe {
-            *integer.as_i16_mut_unchecked() = i16::MAX;
-        }
-        assert_eq!(integer.into_inner(), i16::MAX as i128);
+        *integer.as_i16_mut()? = i16::MAX;
+        assert_eq!(integer.as_i128(), i16::MAX as i128);
 
-        let mut integer = Integer::new(IntSize::X32);
+        let mut integer = Integer::new(IntSize::X32, None)?;
         assert_eq!(integer.size(), IntSize::X32);
         assert_eq!(integer.is_zero(), true);
         assert_eq!(integer.is_negative(), false);
 
-        unsafe {
-            *integer.as_i32_mut_unchecked() = i32::MAX;
-        }
-        assert_eq!(integer.into_inner(), i32::MAX as i128);
+        *integer.as_i32_mut()? = i32::MAX;
+        assert_eq!(integer.as_i128(), i32::MAX as i128);
 
-        let mut integer = Integer::new(IntSize::X64);
+        let mut integer = Integer::new(IntSize::X64, None)?;
         assert_eq!(integer.size(), IntSize::X64);
         assert_eq!(integer.is_zero(), true);
         assert_eq!(integer.is_negative(), false);
 
-        unsafe {
-            *integer.as_i64_mut_unchecked() = i64::MAX;
-        }
-        assert_eq!(integer.into_inner(), i64::MAX as i128);
-
-        let mut integer = Integer::new(IntSize::X128);
-        assert_eq!(integer.size(), IntSize::X128);
-        assert_eq!(integer.is_zero(), true);
-        assert_eq!(integer.is_negative(), false);
-
-        unsafe {
-            *integer.as_i128_mut_unchecked() = i128::MAX;
-        }
-        assert_eq!(integer.into_inner(), i128::MAX);
+        *integer.as_i64_mut()? = i64::MAX;
+        assert_eq!(integer.as_i128(), i64::MAX as i128);
 
         let integer = Integer::try_from_number(42isize).unwrap();
-        assert_eq!(integer.size(), IntSize::ptr_size());
+        assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
-        assert_eq!(integer.into_inner(), 42);
+        assert_eq!(integer.as_i128(), 42);
 
         let integer = Integer::try_from_number(42u8).unwrap();
         assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.is_negative(), false);
-        assert_eq!(integer.into_inner(), 42);
+        assert_eq!(integer.as_i128(), 42);
 
         let integer = Integer::try_from_number(42u16).unwrap();
-        assert_eq!(integer.size(), IntSize::X16);
+        assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.is_negative(), false);
-        assert_eq!(integer.into_inner(), 42);
+        assert_eq!(integer.as_i128(), 42);
 
         let integer = Integer::try_from_number(42u32).unwrap();
-        assert_eq!(integer.size(), IntSize::X32);
+        assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.is_negative(), false);
-        assert_eq!(integer.into_inner(), 42);
+        assert_eq!(integer.as_i128(), 42);
 
         let integer = Integer::try_from_number(42u64).unwrap();
-        assert_eq!(integer.size(), IntSize::X64);
+        assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.is_negative(), false);
-        assert_eq!(integer.into_inner(), 42);
+        assert_eq!(integer.as_i128(), 42);
 
         let integer = Integer::try_from_number(42u128).unwrap();
-        assert_eq!(integer.size(), IntSize::X128);
+        assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
-        assert_eq!(integer.into_inner(), 42);
+        assert_eq!(integer.as_i128(), 42);
 
         let integer = Integer::try_from_number(42usize).unwrap();
-        assert_eq!(integer.size(), IntSize::X128);
+        assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
-        assert_eq!(integer.into_inner(), 42);
+        assert_eq!(integer.as_i128(), 42);
 
         let integer = Integer::try_from_str("42").unwrap();
-        assert_eq!(integer.size(), IntSize::X128);
+        assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
-        assert_eq!(integer.into_inner(), 42);
+        assert_eq!(integer.as_i128(), 42);
 
         let integer = Integer::try_from_str("-42").unwrap();
-        assert_eq!(integer.size(), IntSize::X128);
+        assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.is_negative(), true);
+
+        Ok(())
     }
 }

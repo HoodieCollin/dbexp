@@ -24,6 +24,12 @@ impl Bytes {
         }
     }
 
+    pub fn try_clone_with_capacity(&self, cap: u32, alloc: Option<&Arc<Bump>>) -> Result<Self> {
+        let mut new = Self::new(cap, alloc.unwrap_or(&self.alloc));
+        new.try_push_bytes(self.as_slice())?;
+        Ok(new)
+    }
+
     pub unsafe fn from_parts(ptr: NonNull<u8>, len: u32, cap: u32, alloc: Arc<Bump>) -> Self {
         Self {
             ptr,
@@ -37,19 +43,34 @@ impl Bytes {
         (self.ptr, self.len, self.cap, self.alloc)
     }
 
-    pub fn from_slice(bytes: &[u8], cap: u32, alloc: &Arc<Bump>) -> Result<Self> {
+    pub fn try_from_slice(bytes: &[u8], cap: u32, alloc: &Arc<Bump>) -> Result<Self> {
         if bytes.len() > cap as usize {
             anyhow::bail!("Bytes buffer is too small for slice");
         }
 
-        unsafe { Ok(Self::from_slice_unchecked(bytes, cap, alloc)) }
+        let mut buf = Self::new(cap, alloc);
+        buf.try_push_bytes(bytes)?;
+        Ok(buf)
     }
 
-    pub unsafe fn from_slice_unchecked(bytes: &[u8], cap: u32, alloc: &Arc<Bump>) -> Self {
+    pub fn try_from_i128(value: i128, cap: u32, alloc: &Arc<Bump>) -> Result<Self> {
+        if cap < 16 {
+            return Err(anyhow::anyhow!("Buffer is too small for i128"));
+        }
+
         let mut buf = Self::new(cap, alloc);
-        buf.push_bytes(bytes)
-            .expect("Failed to create Bytes from slice");
-        buf
+        buf.try_push_bytes(&value.to_ne_bytes())?;
+        Ok(buf)
+    }
+
+    pub fn try_from_f64(value: f64, cap: u32, alloc: &Arc<Bump>) -> Result<Self> {
+        if cap < 8 {
+            return Err(anyhow::anyhow!("Buffer is too small for f64"));
+        }
+
+        let mut buf = Self::new(cap, alloc);
+        buf.try_push_bytes(&value.to_ne_bytes())?;
+        Ok(buf)
     }
 
     #[inline(always)]
@@ -101,7 +122,7 @@ impl Bytes {
         &self.alloc
     }
 
-    pub fn push_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+    pub fn try_push_bytes(&mut self, bytes: &[u8]) -> Result<()> {
         let val_len = bytes.len();
 
         if val_len > self.available() {
@@ -159,7 +180,7 @@ impl serde::Serialize for Bytes {
 impl Clone for Bytes {
     fn clone(&self) -> Self {
         let mut new = Self::new(self.cap, &self.alloc);
-        new.push_bytes(self.as_slice())
+        new.try_push_bytes(self.as_slice())
             .expect("Failed to clone Bytes");
 
         new
