@@ -1,6 +1,7 @@
-use rocket::fairing::{ Fairing, Info, Kind };
+use rocket::fairing::{ self, Fairing, Info, Kind };
 use rocket::request::Request;
 use rocket::response::Response;
+use rocket::{Build, Orbit, Rocket};
 
 pub struct LoggingFairing;
 
@@ -12,6 +13,15 @@ impl Fairing for LoggingFairing {
             kind: Kind::Request | Kind::Response,
         }
     }
+
+
+    async fn on_ignite(&self, rocket: Rocket<Build>) -> fairing::Result {/* ... */
+        Ok(rocket)
+    }
+
+    async fn on_liftoff(&self, rocket: &Rocket<Orbit>) {/* ... */}
+
+    async fn on_shutdown(&self, rocket: &Rocket<Orbit>) {/* ... */}
 
     async fn on_request(&self, request: &mut Request<'_>, _data: &mut rocket::Data<'_>) {
         println!("<- Incoming request: {}", request.uri());

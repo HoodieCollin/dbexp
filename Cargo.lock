@@ -1325,6 +1325,7 @@ name = "rest_api"
 version = "0.1.0"
 dependencies = [
  "rocket",
+ "serde",
 ]
 
 [[package]]
@@ -1382,6 +1383,7 @@ dependencies = [
  "rocket_codegen",
  "rocket_http",
  "serde",
+ "serde_json",
  "state",
  "tempfile",
  "time",
