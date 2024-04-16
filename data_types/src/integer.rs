@@ -1,11 +1,10 @@
-use std::{any::TypeId, mem::MaybeUninit};
+use std::{any::TypeId, mem::size_of, ops, ptr};
 
 use anyhow::Result;
 
 pub trait Number: Copy + 'static {
     fn has_sign(&self) -> bool;
 }
-
 impl Number for i8 {
     fn has_sign(&self) -> bool {
         true
@@ -67,6 +66,68 @@ impl Number for usize {
     }
 }
 
+pub trait Signed: Copy + 'static {
+    fn copy_bytes(self, dst: &mut [u8]);
+}
+impl Signed for i8 {
+    fn copy_bytes(self, dst: &mut [u8]) {
+        dst.copy_from_slice(&self.to_ne_bytes());
+    }
+}
+impl Signed for i16 {
+    fn copy_bytes(self, dst: &mut [u8]) {
+        dst.copy_from_slice(&self.to_ne_bytes());
+    }
+}
+impl Signed for i32 {
+    fn copy_bytes(self, dst: &mut [u8]) {
+        dst.copy_from_slice(&self.to_ne_bytes());
+    }
+}
+impl Signed for i64 {
+    fn copy_bytes(self, dst: &mut [u8]) {
+        dst.copy_from_slice(&self.to_ne_bytes());
+    }
+}
+impl Signed for i128 {
+    fn copy_bytes(self, dst: &mut [u8]) {
+        dst.copy_from_slice(&self.to_ne_bytes());
+    }
+}
+impl Signed for isize {
+    fn copy_bytes(self, dst: &mut [u8]) {
+        dst.copy_from_slice(&self.to_ne_bytes());
+    }
+}
+
+pub struct IntegerMut<'a, T: Signed>(T, &'a mut [u8]);
+
+impl<'a, T: Signed> IntegerMut<'a, T> {
+    pub fn new(val: T, dest: &'a mut [u8]) -> Self {
+        Self(val, dest)
+    }
+}
+
+impl<T: Signed> ops::Deref for IntegerMut<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: Signed> ops::DerefMut for IntegerMut<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T: Signed> Drop for IntegerMut<'_, T> {
+    fn drop(&mut self) {
+        self.0.copy_bytes(self.1);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntSize {
     X8,
@@ -77,8 +138,19 @@ pub enum IntSize {
 }
 
 impl IntSize {
+    pub fn ptr_size() -> Self {
+        match size_of::<isize>() {
+            1 => Self::X8,
+            2 => Self::X16,
+            4 => Self::X32,
+            8 => Self::X64,
+            16 => Self::X128,
+            _ => unreachable!(),
+        }
+    }
+
     #[inline(always)]
-    fn byte_count(&self) -> usize {
+    pub fn byte_count(&self) -> usize {
         match self {
             Self::X8 => 1,
             Self::X16 => 2,
@@ -98,11 +170,7 @@ pub struct Integer {
 impl Integer {
     pub fn new(size: IntSize) -> Self {
         Self {
-            data: unsafe {
-                let mut buf = MaybeUninit::<[u8; 16]>::uninit();
-                buf.as_mut_ptr().write_bytes(0, size.byte_count());
-                buf.assume_init()
-            },
+            data: [0; 16],
             size,
         }
     }
@@ -273,7 +341,7 @@ impl Integer {
     }
 
     pub fn try_from_str(s: &str) -> Result<Self> {
-        Self::try_from_number(s.parse::<u128>()?)
+        Self::try_from_number(s.parse::<i128>()?)
     }
 
     #[inline(always)]
@@ -283,62 +351,68 @@ impl Integer {
 
     #[inline(always)]
     pub unsafe fn as_i8_unchecked(&self) -> i8 {
-        *self.data.as_ptr() as i8
+        ptr::read_unaligned(self.data.as_ptr() as _)
     }
 
     #[inline(always)]
-    pub unsafe fn as_i8_mut_unchecked(&mut self) -> &mut i8 {
-        &mut *(self.data.as_mut_ptr() as *mut i8)
+    pub unsafe fn as_i8_mut_unchecked(&mut self) -> IntegerMut<i8> {
+        let val = self.as_i8_unchecked();
+        IntegerMut::new(val, &mut self.data[..size_of::<i8>()])
     }
 
     #[inline(always)]
     pub unsafe fn as_i16_unchecked(&self) -> i16 {
-        *(self.data.as_ptr() as *const i16)
+        ptr::read_unaligned(self.data.as_ptr() as _)
     }
 
     #[inline(always)]
-    pub unsafe fn as_i16_mut_unchecked(&mut self) -> &mut i16 {
-        &mut *(self.data.as_mut_ptr() as *mut i16)
+    pub unsafe fn as_i16_mut_unchecked(&mut self) -> IntegerMut<i16> {
+        let val = self.as_i16_unchecked();
+        IntegerMut::new(val, &mut self.data[..size_of::<i16>()])
     }
 
     #[inline(always)]
     pub unsafe fn as_i32_unchecked(&self) -> i32 {
-        *(self.data.as_ptr() as *const i32)
+        ptr::read_unaligned(self.data.as_ptr() as _)
     }
 
     #[inline(always)]
-    pub unsafe fn as_i32_mut_unchecked(&mut self) -> &mut i32 {
-        &mut *(self.data.as_mut_ptr() as *mut i32)
+    pub unsafe fn as_i32_mut_unchecked(&mut self) -> IntegerMut<i32> {
+        let val = self.as_i32_unchecked();
+        IntegerMut::new(val, &mut self.data[..size_of::<i32>()])
     }
 
     #[inline(always)]
     pub unsafe fn as_i64_unchecked(&self) -> i64 {
-        *(self.data.as_ptr() as *const i64)
+        ptr::read_unaligned(self.data.as_ptr() as _)
     }
 
     #[inline(always)]
-    pub unsafe fn as_i64_mut_unchecked(&mut self) -> &mut i64 {
-        &mut *(self.data.as_mut_ptr() as *mut i64)
+    pub unsafe fn as_i64_mut_unchecked(&mut self) -> IntegerMut<i64> {
+        let val = self.as_i64_unchecked();
+        IntegerMut::new(val, &mut self.data[..size_of::<i64>()])
     }
 
     #[inline(always)]
     pub unsafe fn as_i128_unchecked(&self) -> i128 {
-        *(self.data.as_ptr() as *const i128)
+        ptr::read_unaligned(self.data.as_ptr() as _)
     }
 
     #[inline(always)]
-    pub unsafe fn as_i128_mut_unchecked(&mut self) -> &mut i128 {
-        &mut *(self.data.as_mut_ptr() as *mut i128)
+    pub unsafe fn as_i128_mut_unchecked(&mut self) -> IntegerMut<i128> {
+        let val = self.as_i128_unchecked();
+        IntegerMut::new(val, &mut self.data[..size_of::<i128>()])
     }
 
     #[inline(always)]
-    pub unsafe fn as_isize_mut_unchecked(&mut self) -> &mut isize {
-        &mut *(self.data.as_mut_ptr() as *mut isize)
+    pub unsafe fn as_isize_unchecked(&self) -> isize {
+        ptr::read_unaligned(self.data.as_ptr() as _)
     }
 
     #[inline(always)]
-    pub unsafe fn as_usize_mut_unchecked(&mut self) -> &mut usize {
-        &mut *(self.data.as_mut_ptr() as *mut usize)
+    pub unsafe fn as_isize_mut_unchecked(&mut self) -> IntegerMut<isize> {
+        let val = self.as_isize_unchecked();
+        IntegerMut::new(val, &mut self.data[..size_of::<isize>()])
     }
 
     pub fn into_inner(self) -> i128 {
@@ -360,16 +434,11 @@ impl Integer {
     }
 
     pub unsafe fn from_slice_unchecked(bytes: &[u8], size: IntSize) -> Self {
-        Self {
-            data: {
-                let mut buf = MaybeUninit::<[u8; 16]>::uninit();
-                buf.as_mut_ptr()
-                    .copy_from_nonoverlapping(bytes.as_ptr() as _, size.byte_count());
+        let mut data = [0; 16];
+        data.as_mut_ptr()
+            .copy_from_nonoverlapping(bytes.as_ptr() as _, size.byte_count());
 
-                buf.assume_init()
-            },
-            size,
-        }
+        Self { data, size }
     }
 
     #[inline(always)]
@@ -671,5 +740,112 @@ impl Ord for Integer {
                 },
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_integer() {
+        let mut integer = Integer::new(IntSize::X8);
+        assert_eq!(integer.size(), IntSize::X8);
+        assert_eq!(integer.is_zero(), true);
+        assert_eq!(integer.is_negative(), false);
+
+        unsafe {
+            *integer.as_i8_mut_unchecked() = i8::MAX;
+        }
+        assert_eq!(integer.into_inner(), i8::MAX as i128);
+
+        let mut integer = Integer::new(IntSize::X16);
+        assert_eq!(integer.size(), IntSize::X16);
+        assert_eq!(integer.is_zero(), true);
+        assert_eq!(integer.is_negative(), false);
+
+        unsafe {
+            *integer.as_i16_mut_unchecked() = i16::MAX;
+        }
+        assert_eq!(integer.into_inner(), i16::MAX as i128);
+
+        let mut integer = Integer::new(IntSize::X32);
+        assert_eq!(integer.size(), IntSize::X32);
+        assert_eq!(integer.is_zero(), true);
+        assert_eq!(integer.is_negative(), false);
+
+        unsafe {
+            *integer.as_i32_mut_unchecked() = i32::MAX;
+        }
+        assert_eq!(integer.into_inner(), i32::MAX as i128);
+
+        let mut integer = Integer::new(IntSize::X64);
+        assert_eq!(integer.size(), IntSize::X64);
+        assert_eq!(integer.is_zero(), true);
+        assert_eq!(integer.is_negative(), false);
+
+        unsafe {
+            *integer.as_i64_mut_unchecked() = i64::MAX;
+        }
+        assert_eq!(integer.into_inner(), i64::MAX as i128);
+
+        let mut integer = Integer::new(IntSize::X128);
+        assert_eq!(integer.size(), IntSize::X128);
+        assert_eq!(integer.is_zero(), true);
+        assert_eq!(integer.is_negative(), false);
+
+        unsafe {
+            *integer.as_i128_mut_unchecked() = i128::MAX;
+        }
+        assert_eq!(integer.into_inner(), i128::MAX);
+
+        let integer = Integer::try_from_number(42isize).unwrap();
+        assert_eq!(integer.size(), IntSize::ptr_size());
+        assert_eq!(integer.is_zero(), false);
+        assert_eq!(integer.into_inner(), 42);
+
+        let integer = Integer::try_from_number(42u8).unwrap();
+        assert_eq!(integer.size(), IntSize::X8);
+        assert_eq!(integer.is_zero(), false);
+        assert_eq!(integer.is_negative(), false);
+        assert_eq!(integer.into_inner(), 42);
+
+        let integer = Integer::try_from_number(42u16).unwrap();
+        assert_eq!(integer.size(), IntSize::X16);
+        assert_eq!(integer.is_zero(), false);
+        assert_eq!(integer.is_negative(), false);
+        assert_eq!(integer.into_inner(), 42);
+
+        let integer = Integer::try_from_number(42u32).unwrap();
+        assert_eq!(integer.size(), IntSize::X32);
+        assert_eq!(integer.is_zero(), false);
+        assert_eq!(integer.is_negative(), false);
+        assert_eq!(integer.into_inner(), 42);
+
+        let integer = Integer::try_from_number(42u64).unwrap();
+        assert_eq!(integer.size(), IntSize::X64);
+        assert_eq!(integer.is_zero(), false);
+        assert_eq!(integer.is_negative(), false);
+        assert_eq!(integer.into_inner(), 42);
+
+        let integer = Integer::try_from_number(42u128).unwrap();
+        assert_eq!(integer.size(), IntSize::X128);
+        assert_eq!(integer.is_zero(), false);
+        assert_eq!(integer.into_inner(), 42);
+
+        let integer = Integer::try_from_number(42usize).unwrap();
+        assert_eq!(integer.size(), IntSize::X128);
+        assert_eq!(integer.is_zero(), false);
+        assert_eq!(integer.into_inner(), 42);
+
+        let integer = Integer::try_from_str("42").unwrap();
+        assert_eq!(integer.size(), IntSize::X128);
+        assert_eq!(integer.is_zero(), false);
+        assert_eq!(integer.into_inner(), 42);
+
+        let integer = Integer::try_from_str("-42").unwrap();
+        assert_eq!(integer.size(), IntSize::X128);
+        assert_eq!(integer.is_zero(), false);
+        assert_eq!(integer.is_negative(), true);
     }
 }
