@@ -1,7 +1,4 @@
-use std::{
-    mem::{self, size_of},
-    ptr,
-};
+use std::ptr;
 
 use anyhow::Result;
 
