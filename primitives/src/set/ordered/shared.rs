@@ -1,69 +1,12 @@
-use std::{cell::LazyCell, collections::BTreeSet};
-
 use anyhow::Result;
 use serde::Serialize;
 
-use crate::{
-    sealed::GlobalRecycler,
-    shared_object::{SharedObject, SharedObjectMut, SharedObjectRef},
-    Recycler,
-};
+use crate::shared_object::{SharedObject, SharedObjectMut, SharedObjectRef};
 
-#[derive(Debug, Clone)]
-#[repr(transparent)]
-pub struct OrdSet<T>(BTreeSet<T, Recycler>);
-
-impl<T> GlobalRecycler for OrdSet<T> {
-    fn recycler() -> Recycler {
-        // avoid using `LazyLock` because `Recycler` is inherently thread-safe thus the lock is unnecessary
-        static mut GLOBAL_RECYCLER: LazyCell<Recycler> = LazyCell::new(Recycler::default);
-        unsafe { GLOBAL_RECYCLER.clone() }
-    }
-}
-
-impl<T> std::ops::Deref for OrdSet<T> {
-    type Target = BTreeSet<T, Recycler>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> std::ops::DerefMut for OrdSet<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<T> OrdSet<T> {
-    pub fn new() -> Self {
-        Self(BTreeSet::new_in(Self::recycler()))
-    }
-
-    pub fn into_shared(self) -> SharedOrdSet<T>
-    where
-        T: Send + Sync,
-    {
-        SharedOrdSet(SharedObject::new(self))
-    }
-}
-
-impl<T: Serialize> Serialize for OrdSet<T> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeSeq;
-
-        let mut seq = serializer.serialize_seq(Some(self.len()))?;
-
-        for item in self.iter() {
-            seq.serialize_element(item)?;
-        }
-
-        seq.end()
-    }
-}
+use super::OrdSet;
 
 #[repr(transparent)]
-pub struct SharedOrdSet<T: 'static>(SharedObject<OrdSet<T>>);
+pub struct SharedOrdSet<T: 'static>(pub(super) SharedObject<OrdSet<T>>);
 
 impl<T: Send + Sync> SharedOrdSet<T> {
     pub fn new() -> Self {

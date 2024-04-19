@@ -6,8 +6,8 @@ use data_types::{ExpectedType, Loader};
 use im::HashSet;
 use parking_lot::RwLock;
 use primitives::buffer::Buffer;
-use primitives::shared_map::Map;
-use primitives::shared_set::Set;
+use primitives::map::Map;
+use primitives::set::Set;
 use primitives::typed_arc::TypedArc;
 
 use crate::cell::{Cell, CellKey, CellPool};

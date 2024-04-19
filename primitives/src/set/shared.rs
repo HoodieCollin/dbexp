@@ -1,93 +1,14 @@
-use std::cell::LazyCell;
-
 use anyhow::Result;
-use hashbrown::{hash_map::DefaultHashBuilder, HashSet};
 use serde::Serialize;
 
-use crate::{
-    sealed::GlobalRecycler,
-    shared_object::{SharedObject, SharedObjectMut, SharedObjectRef},
-    Recycler,
-};
+use crate::shared_object::{SharedObject, SharedObjectMut, SharedObjectRef};
 
-pub mod ordered;
-
-#[derive(Debug, Clone, Serialize)]
-pub struct Set<T: Eq + std::hash::Hash>(HashSet<T, DefaultHashBuilder, Recycler>);
-
-impl<T: Eq + std::hash::Hash> GlobalRecycler for Set<T> {
-    fn recycler() -> Recycler {
-        // avoid using `LazyLock` because `Recycler` is inherently thread-safe thus the lock is unnecessary
-        static mut GLOBAL_RECYCLER: LazyCell<Recycler> = LazyCell::new(Recycler::default);
-        unsafe { GLOBAL_RECYCLER.clone() }
-    }
-}
-
-impl<T: Eq + std::hash::Hash> std::ops::Deref for Set<T> {
-    type Target = HashSet<T, DefaultHashBuilder, Recycler>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T: Eq + std::hash::Hash> std::ops::DerefMut for Set<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<T: Eq + std::hash::Hash> FromIterator<T> for Set<T> {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let iter = iter.into_iter();
-        let mut set = Self::with_capacity(iter.size_hint().0);
-
-        set.extend(iter);
-        set
-    }
-}
-
-impl<T: Eq + std::hash::Hash> IntoIterator for Set<T> {
-    type Item = T;
-    type IntoIter = hashbrown::hash_set::IntoIter<T, Recycler>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-impl<'a, T: Eq + std::hash::Hash> IntoIterator for &'a Set<T> {
-    type Item = &'a T;
-    type IntoIter = hashbrown::hash_set::Iter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<T: Eq + std::hash::Hash> Set<T> {
-    pub fn new() -> Self {
-        Self(HashSet::new_in(Self::recycler()))
-    }
-
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self(HashSet::with_capacity_and_hasher_in(
-            capacity,
-            DefaultHashBuilder::default(),
-            Self::recycler(),
-        ))
-    }
-
-    pub fn into_shared(self) -> SharedSet<T>
-    where
-        T: Send + Sync,
-    {
-        SharedSet(SharedObject::new(self))
-    }
-}
+use super::Set;
 
 #[repr(transparent)]
-pub struct SharedSet<T: Eq + std::hash::Hash + Send + Sync + 'static>(SharedObject<Set<T>>);
+pub struct SharedSet<T: Eq + std::hash::Hash + Send + Sync + 'static>(
+    pub(super) SharedObject<Set<T>>,
+);
 
 impl<T: Eq + std::hash::Hash + Send + Sync> SharedSet<T> {
     pub fn new() -> Self {

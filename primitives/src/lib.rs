@@ -15,9 +15,10 @@ use parking_lot::RwLock;
 
 pub mod buffer;
 pub mod bump;
-pub mod shared_map;
+pub mod graph;
+pub mod map;
+pub mod set;
 pub mod shared_object;
-pub mod shared_set;
 pub mod typed_arc;
 
 /// ## !!! WARNING !!!
@@ -244,3 +245,34 @@ pub(crate) mod sealed {
         fn recycler() -> Recycler;
     }
 }
+
+macro_rules! new_global_recycler {
+    (
+        $name:ident
+    ) => {
+        #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name;
+
+        impl crate::sealed::GlobalRecycler for $name {
+            fn recycler() -> Recycler {
+                static mut GLOBAL_RECYCLER: LazyCell<Recycler> = LazyCell::new(Recycler::default);
+                unsafe { GLOBAL_RECYCLER.clone() }
+            }
+        }
+
+        unsafe impl std::alloc::Allocator for $name {
+            fn allocate(
+                &self,
+                layout: std::alloc::Layout,
+            ) -> Result<std::ptr::NonNull<[u8]>, std::alloc::AllocError> {
+                Self::recycler().allocate(layout)
+            }
+
+            unsafe fn deallocate(&self, ptr: std::ptr::NonNull<u8>, layout: std::alloc::Layout) {
+                Self::recycler().deallocate(ptr, layout)
+            }
+        }
+    };
+}
+
+pub(crate) use new_global_recycler;

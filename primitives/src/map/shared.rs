@@ -1,105 +1,13 @@
-use std::cell::LazyCell;
-
 use anyhow::Result;
-use hashbrown::{hash_map::DefaultHashBuilder, HashMap};
 use serde::Serialize;
 
-use crate::{
-    sealed::GlobalRecycler,
-    shared_object::{SharedObject, SharedObjectMut, SharedObjectRef},
-    Recycler,
-};
+use crate::shared_object::{SharedObject, SharedObjectMut, SharedObjectRef};
 
-pub mod ordered;
-
-#[derive(Debug, Clone, Serialize)]
-#[repr(transparent)]
-pub struct Map<K: Eq + std::hash::Hash, V>(HashMap<K, V, DefaultHashBuilder, Recycler>);
-
-impl<K: Eq + std::hash::Hash, V> GlobalRecycler for Map<K, V> {
-    fn recycler() -> Recycler {
-        // avoid using `LazyLock` because `Recycler` is inherently thread-safe thus the lock is unnecessary
-        static mut GLOBAL_RECYCLER: LazyCell<Recycler> = LazyCell::new(Recycler::default);
-        unsafe { GLOBAL_RECYCLER.clone() }
-    }
-}
-
-impl<K: Eq + std::hash::Hash, V> std::ops::Deref for Map<K, V> {
-    type Target = HashMap<K, V, DefaultHashBuilder, Recycler>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<K: Eq + std::hash::Hash, V> std::ops::DerefMut for Map<K, V> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<K: Eq + std::hash::Hash, V> FromIterator<(K, V)> for Map<K, V> {
-    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
-        let iter = iter.into_iter();
-        let mut map = Self::with_capacity(iter.size_hint().0);
-
-        map.extend(iter);
-        map
-    }
-}
-
-impl<K: Eq + std::hash::Hash, V> IntoIterator for Map<K, V> {
-    type Item = (K, V);
-    type IntoIter = hashbrown::hash_map::IntoIter<K, V, Recycler>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-impl<'a, K: Eq + std::hash::Hash, V> IntoIterator for &'a Map<K, V> {
-    type Item = (&'a K, &'a V);
-    type IntoIter = hashbrown::hash_map::Iter<'a, K, V>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<'a, K: Eq + std::hash::Hash, V> IntoIterator for &'a mut Map<K, V> {
-    type Item = (&'a K, &'a mut V);
-    type IntoIter = hashbrown::hash_map::IterMut<'a, K, V>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter_mut()
-    }
-}
-
-impl<K: Eq + std::hash::Hash, V> Map<K, V> {
-    pub fn new() -> Self {
-        Self(HashMap::new_in(Self::recycler()))
-    }
-
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self(HashMap::with_capacity_and_hasher_in(
-            capacity,
-            DefaultHashBuilder::default(),
-            Self::recycler(),
-        ))
-    }
-
-    pub fn into_shared(self) -> SharedMap<K, V>
-    where
-        K: Send + Sync,
-        V: Send + Sync,
-    {
-        SharedMap(SharedObject::new(self))
-    }
-}
+use super::Map;
 
 #[repr(transparent)]
 pub struct SharedMap<K: Eq + std::hash::Hash + Send + Sync + 'static, V: Send + Sync + 'static>(
-    SharedObject<Map<K, V>>,
+    pub(super) SharedObject<Map<K, V>>,
 );
 
 impl<K: Eq + std::hash::Hash + Send + Sync, V: Send + Sync> SharedMap<K, V> {
