@@ -1,6 +1,10 @@
 use base62::{decode, encode};
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub trait ObjectId {
+    fn as_usize(&self) -> usize;
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct O16(u16);
 
@@ -9,20 +13,28 @@ impl O16 {
         Self(rand::random::<u16>())
     }
 
-    pub fn from_le_bytes(bytes: [u8; 2]) -> Self {
-        Self(u16::from_le_bytes(bytes))
+    pub fn from_uint(id: impl Into<u16>) -> Self {
+        Self(id.into())
     }
 
-    pub fn from_be_bytes(bytes: [u8; 2]) -> Self {
-        Self(u16::from_be_bytes(bytes))
+    pub fn from_array(bytes: [u8; 2]) -> Self {
+        Self(u16::from_ne_bytes(bytes))
     }
 
-    pub fn to_le_bytes(&self) -> [u8; 2] {
-        self.0.to_le_bytes()
+    pub fn into_array(&self) -> [u8; 2] {
+        self.0.to_ne_bytes()
     }
+}
 
-    pub fn to_be_bytes(&self) -> [u8; 2] {
-        self.0.to_be_bytes()
+impl Default for O16 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ObjectId for O16 {
+    fn as_usize(&self) -> usize {
+        self.0 as usize
     }
 }
 
@@ -61,7 +73,7 @@ impl<'de> serde::Deserialize<'de> for O16 {
     }
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct O32(u32);
 
@@ -70,20 +82,28 @@ impl O32 {
         Self(rand::random::<u32>())
     }
 
-    pub fn from_le_bytes(bytes: [u8; 4]) -> Self {
-        Self(u32::from_le_bytes(bytes))
+    pub fn from_uint(id: impl Into<u32>) -> Self {
+        Self(id.into())
     }
 
-    pub fn from_be_bytes(bytes: [u8; 4]) -> Self {
-        Self(u32::from_be_bytes(bytes))
+    pub fn from_array(bytes: [u8; 4]) -> Self {
+        Self(u32::from_ne_bytes(bytes))
     }
 
-    pub fn to_le_bytes(&self) -> [u8; 4] {
-        self.0.to_le_bytes()
+    pub fn into_array(&self) -> [u8; 4] {
+        self.0.to_ne_bytes()
     }
+}
 
-    pub fn to_be_bytes(&self) -> [u8; 4] {
-        self.0.to_be_bytes()
+impl Default for O32 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ObjectId for O32 {
+    fn as_usize(&self) -> usize {
+        self.0 as usize
     }
 }
 
@@ -122,7 +142,7 @@ impl<'de> serde::Deserialize<'de> for O32 {
     }
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct O64(u64);
 
@@ -131,20 +151,28 @@ impl O64 {
         Self(rand::random::<u64>())
     }
 
-    pub fn from_le_bytes(bytes: [u8; 8]) -> Self {
-        Self(u64::from_le_bytes(bytes))
+    pub fn from_uint(id: impl Into<u64>) -> Self {
+        Self(id.into())
     }
 
-    pub fn from_be_bytes(bytes: [u8; 8]) -> Self {
-        Self(u64::from_be_bytes(bytes))
+    pub fn from_array(bytes: [u8; 8]) -> Self {
+        Self(u64::from_ne_bytes(bytes))
     }
 
-    pub fn to_le_bytes(&self) -> [u8; 8] {
-        self.0.to_le_bytes()
+    pub fn into_array(&self) -> [u8; 8] {
+        self.0.to_ne_bytes()
     }
+}
 
-    pub fn to_be_bytes(&self) -> [u8; 8] {
-        self.0.to_be_bytes()
+impl Default for O64 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ObjectId for O64 {
+    fn as_usize(&self) -> usize {
+        self.0 as usize
     }
 }
 
