@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::Result;
 use number::IntSize;
+use serde::{Deserialize, Serialize};
 
 use crate::number::Number;
 
@@ -24,7 +25,7 @@ pub mod timestamp;
 //
 // mod math;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum DataType {
     O16,
     O32,
@@ -74,7 +75,7 @@ impl DataType {
 
 /// A wrapper around `DataType` that represents an expected type. The inner `DataType`
 /// should never be changed once set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct ExpectedType(DataType);
 

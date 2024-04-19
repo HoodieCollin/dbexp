@@ -1,6 +1,6 @@
 use anyhow::Result;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{force_transmute, typed_arc::TypedArc};
 
@@ -134,6 +134,12 @@ impl<T: std::hash::Hash + Eq> std::hash::Hash for SharedObject<T> {
 impl<T: Serialize> Serialize for SharedObject<T> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.read_recursive_with(|inner| inner.serialize(serializer))
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for SharedObject<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self::new(T::deserialize(deserializer)?))
     }
 }
 

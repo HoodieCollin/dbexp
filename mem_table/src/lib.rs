@@ -14,6 +14,7 @@ use crate::cell::{Cell, CellKey, CellPool};
 use crate::object_ids::{ColumnId, RecordId, TableId};
 
 pub mod cell;
+pub mod graph;
 pub mod object_ids;
 
 struct TableInner {

@@ -2,8 +2,11 @@ use data_types::{
     oid::{self, ObjectId},
     ExpectedType,
 };
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct TableId(oid::O32);
 
 impl TableId {
@@ -12,7 +15,7 @@ impl TableId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ColumnId(oid::O32, TableId, ExpectedType);
 
 impl ColumnId {
@@ -29,7 +32,7 @@ impl ColumnId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct RecordId(oid::O32, TableId);
 
 impl RecordId {
@@ -46,7 +49,7 @@ impl RecordId {
 ///
 /// There is a global pool of `Cell`s allocated in a slab. When a `Cell` is dropped, it is returned to
 /// the pool. When a new `Cell` is needed, it is allocated from the pool.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct CellId(oid::O64);
 
 impl CellId {

@@ -5,7 +5,7 @@ use petgraph::{
     graphmap::{GraphMap, NodeTrait},
     Directed, EdgeType, Undirected,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{sealed::GlobalRecycler, shared_object::SharedObject, Recycler};
 
@@ -17,7 +17,7 @@ pub type DiGraph<N, E> = Graph<N, E, Directed>;
 
 pub type UnGraph<N, E> = Graph<N, E, Undirected>;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct Graph<N: NodeTrait, E: Clone, Ty: EdgeType + Clone>(
     GraphMap<N, E, Ty, RandomState, GraphRecycler>,

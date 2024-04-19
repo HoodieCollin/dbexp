@@ -1,6 +1,6 @@
 use anyhow::Result;
 use petgraph::{graphmap::NodeTrait, Directed, EdgeType, Undirected};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::shared_object::{SharedObject, SharedObjectMut, SharedObjectRef};
 
@@ -8,14 +8,21 @@ use super::Graph;
 
 pub trait SafeNodeTrait: NodeTrait + Send + Sync {}
 
+impl<T: NodeTrait + Send + Sync> SafeNodeTrait for T {}
+
 pub trait SafeEdgeTrait: Clone + Send + Sync {}
+
+impl<T: Clone + Send + Sync> SafeEdgeTrait for T {}
 
 pub trait SafeTypeTrait: EdgeType + Clone + Send + Sync {}
 
-pub type SharedDiGraph<N, E> = Graph<N, E, Directed>;
+impl<T: EdgeType + Clone + Send + Sync> SafeTypeTrait for T {}
 
-pub type SharedUnGraph<N, E> = Graph<N, E, Undirected>;
+pub type SharedDiGraph<N, E> = SharedGraph<N, E, Directed>;
 
+pub type SharedUnGraph<N, E> = SharedGraph<N, E, Undirected>;
+
+#[derive(Deserialize)]
 #[repr(transparent)]
 pub struct SharedGraph<
     N: SafeNodeTrait + 'static,
