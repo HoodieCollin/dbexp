@@ -83,7 +83,7 @@ impl Integer {
     }
 
     #[inline(always)]
-    pub fn try_from_number<T: Number>(n: T) -> Result<Self> {
+    pub fn try_from_number<T: Number>(n: T, size_req: Option<IntSize>) -> Result<Self> {
         let normalized = n.as_i128()?;
 
         let new: Integer;
@@ -134,11 +134,15 @@ impl Integer {
             }
         }
 
-        Ok(new)
+        if let Some(size_req) = size_req {
+            Ok(new.try_to_fit(size_req)?)
+        } else {
+            Ok(new)
+        }
     }
 
-    pub fn try_from_str(s: &str) -> Result<Self> {
-        Self::try_from_number(s.parse::<i128>()?)
+    pub fn try_from_str(s: &str, size_req: Option<IntSize>) -> Result<Self> {
+        Self::try_from_number(s.parse::<i128>()?, size_req)
     }
 
     #[inline(always)]
@@ -403,51 +407,51 @@ mod test {
         *integer.as_i64_mut()? = i64::MAX;
         assert_eq!(integer.as_i128(), i64::MAX as i128);
 
-        let integer = Integer::try_from_number(42isize).unwrap();
+        let integer = Integer::try_from_number(42isize, None)?;
         assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.as_i128(), 42);
 
-        let integer = Integer::try_from_number(42u8).unwrap();
-        assert_eq!(integer.size(), IntSize::X8);
-        assert_eq!(integer.is_zero(), false);
-        assert_eq!(integer.is_negative(), false);
-        assert_eq!(integer.as_i128(), 42);
-
-        let integer = Integer::try_from_number(42u16).unwrap();
+        let integer = Integer::try_from_number(42u8, None)?;
         assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.is_negative(), false);
         assert_eq!(integer.as_i128(), 42);
 
-        let integer = Integer::try_from_number(42u32).unwrap();
+        let integer = Integer::try_from_number(42u16, None)?;
         assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.is_negative(), false);
         assert_eq!(integer.as_i128(), 42);
 
-        let integer = Integer::try_from_number(42u64).unwrap();
+        let integer = Integer::try_from_number(42u32, None)?;
         assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.is_negative(), false);
         assert_eq!(integer.as_i128(), 42);
 
-        let integer = Integer::try_from_number(42u128).unwrap();
+        let integer = Integer::try_from_number(42u64, None)?;
+        assert_eq!(integer.size(), IntSize::X8);
+        assert_eq!(integer.is_zero(), false);
+        assert_eq!(integer.is_negative(), false);
+        assert_eq!(integer.as_i128(), 42);
+
+        let integer = Integer::try_from_number(42u128, None)?;
         assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.as_i128(), 42);
 
-        let integer = Integer::try_from_number(42usize).unwrap();
+        let integer = Integer::try_from_number(42usize, None)?;
         assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.as_i128(), 42);
 
-        let integer = Integer::try_from_str("42").unwrap();
+        let integer = Integer::try_from_str("42", None)?;
         assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.as_i128(), 42);
 
-        let integer = Integer::try_from_str("-42").unwrap();
+        let integer = Integer::try_from_str("-42", None)?;
         assert_eq!(integer.size(), IntSize::X8);
         assert_eq!(integer.is_zero(), false);
         assert_eq!(integer.is_negative(), true);
