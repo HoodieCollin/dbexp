@@ -1,0 +1,17 @@
+[package]
+  edition = "2021"
+  name    = "mem_table"
+  version = "0.1.0"
+
+[dependencies]
+  anyhow       = { workspace = true }
+  bumpalo      = { workspace = true }
+  bumpalo-herd = { workspace = true }
+  data_types   = { path = "../data_types" }
+  im           = { workspace = true }
+  parking_lot  = { workspace = true }
+  petgraph     = { workspace = true }
+  primitives   = { path = "../primitives" }
+  rayon        = { workspace = true }
+  serde        = { workspace = true }
+  sharded-slab = { workspace = true }
