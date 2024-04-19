@@ -9,8 +9,7 @@
     "hcl_schemas",
     "index_btree",
     "index_hash",
-    "mem_columns",
-    "mem_graph",
+    "mem_table",
     "rest_api",
     'data_types',
   ]
@@ -19,14 +18,18 @@
     "hcl_schemas",
     "index_btree",
     "index_hash",
-    "mem_columns",
-    "mem_graph",
+    "mem_table",
+    "primitives",
     "rest_api",
     'data_types',
   ]
 
   [workspace.dependencies]
     anyhow = "1.0"
+
+    [workspace.dependencies.hashbrown]
+      features = ["nightly", "rayon", "serde"]
+      version  = "0.14"
 
     [workspace.dependencies.petgraph]
       features = ["serde-1"]
@@ -36,13 +39,19 @@
       features = ["rayon", "serde"]
       version  = "15.1"
 
+    [workspace.dependencies.rayon]
+      version = "1.10"
+
     [workspace.dependencies.serde]
       features = ["derive"]
       version  = "1.0"
 
     [workspace.dependencies.bumpalo]
-      features = ["boxed", "collections", "serde", "std"]
+      features = ["serde", "std"]
       version  = "3.16"
+
+    [workspace.dependencies.bumpalo-herd]
+      version = "0.1"
 
     [workspace.dependencies.rand]
       version = "0.8"
@@ -58,6 +67,12 @@
 
     [workspace.dependencies.ryu]
       version = "1.0"
+
+    [workspace.dependencies.sharded-slab]
+      version = "0.1"
+
+    [workspace.dependencies.parking_lot]
+      version = "0.12"
 
 [dependencies]
   clap = { version = "4.5.4", features = ["derive"] }
