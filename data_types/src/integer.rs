@@ -34,7 +34,7 @@ impl Integer {
     #[inline(always)]
     pub unsafe fn from_array(data: [u8; 8], size: IntSize) -> Self {
         match size {
-            IntSize::X8 => Self::X8(ptr::read_unaligned(data[0] as *const _)),
+            IntSize::X8 => Self::X8(data[0] as i8),
             IntSize::X16 => Self::X16(ptr::read_unaligned(data[..2].as_ptr() as *const _)),
             IntSize::X32 => Self::X32(ptr::read_unaligned(data[..4].as_ptr() as *const _)),
             IntSize::X64 => Self::X64(ptr::read_unaligned(data[..8].as_ptr() as *const _)),
