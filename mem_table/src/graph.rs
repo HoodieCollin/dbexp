@@ -1,7 +1,13 @@
-use primitives::graph::shared::SharedDiGraph;
-use serde::Serialize;
+use primitives::graph::DiGraph;
+use serde::{Deserialize, Serialize};
 
 use crate::object_ids::RecordId;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct RecordGraph(SharedDiGraph<RecordId, RecordId>);
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct RecordGraph(DiGraph<RecordId, RecordId>);
+
+impl RecordGraph {
+    pub fn new() -> Self {
+        Self(DiGraph::new())
+    }
+}

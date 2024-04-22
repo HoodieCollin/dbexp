@@ -4,10 +4,9 @@ use anyhow::Result;
 use indexmap::IndexMap;
 use serde::Serialize;
 
-use crate::{sealed::GlobalRecycler, shared_object::SharedObject, Recycler};
+use crate::{sealed::GlobalRecycler, Recycler};
 
 pub mod ordered;
-pub mod shared;
 
 crate::new_global_recycler!(MapRecycler);
 
@@ -84,12 +83,10 @@ impl<K: Eq + std::hash::Hash, V> Map<K, V> {
             MapRecycler,
         ))
     }
+}
 
-    pub fn into_shared(self) -> shared::SharedMap<K, V>
-    where
-        K: Send + Sync,
-        V: Send + Sync,
-    {
-        shared::SharedMap(SharedObject::new(self))
+impl<K: Eq + std::hash::Hash, V> Default for Map<K, V> {
+    fn default() -> Self {
+        Self::new()
     }
 }

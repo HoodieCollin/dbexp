@@ -7,9 +7,7 @@ use petgraph::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{sealed::GlobalRecycler, shared_object::SharedObject, Recycler};
-
-pub mod shared;
+use crate::{sealed::GlobalRecycler, Recycler};
 
 crate::new_global_recycler!(GraphRecycler);
 
@@ -17,7 +15,7 @@ pub type DiGraph<N, E> = Graph<N, E, Directed>;
 
 pub type UnGraph<N, E> = Graph<N, E, Undirected>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 #[repr(transparent)]
 pub struct Graph<N: NodeTrait, E: Clone, Ty: EdgeType + Clone>(
     GraphMap<N, E, Ty, RandomState, GraphRecycler>,
@@ -56,13 +54,42 @@ impl<N: NodeTrait, E: Clone, Ty: EdgeType + Clone> Graph<N, E, Ty> {
             GraphRecycler,
         ))
     }
+}
 
-    pub fn into_shared(self) -> shared::SharedGraph<N, E, Ty>
-    where
-        N: shared::SafeNodeTrait,
-        E: shared::SafeEdgeTrait,
-        Ty: shared::SafeTypeTrait,
-    {
-        shared::SharedGraph(SharedObject::new(self))
+impl<N: NodeTrait, E: Clone, Ty: EdgeType + Clone> Default for Graph<N, E, Ty> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<N: NodeTrait + Serialize, E: Clone + Serialize> Serialize for DiGraph<N, E> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de, N: NodeTrait + Deserialize<'de>, E: Clone + Deserialize<'de>> Deserialize<'de>
+    for DiGraph<N, E>
+{
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let graph =
+            GraphMap::<N, E, Directed, RandomState, GraphRecycler>::deserialize(deserializer)?;
+        Ok(Self(graph))
+    }
+}
+
+impl<N: NodeTrait + Serialize, E: Clone + Serialize> Serialize for UnGraph<N, E> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de, N: NodeTrait + Deserialize<'de>, E: Clone + Deserialize<'de>> Deserialize<'de>
+    for UnGraph<N, E>
+{
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let graph =
+            GraphMap::<N, E, Undirected, RandomState, GraphRecycler>::deserialize(deserializer)?;
+        Ok(Self(graph))
     }
 }

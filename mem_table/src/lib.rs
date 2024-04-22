@@ -2,10 +2,9 @@
 #![feature(allocator_api)]
 
 use anyhow::Result;
-use data_types::{ExpectedType, Loader};
+use data_types::{DataValue, ExpectedType};
 use im::HashSet;
 use parking_lot::RwLock;
-use primitives::buffer::Buffer;
 use primitives::map::Map;
 use primitives::set::Set;
 use primitives::typed_arc::TypedArc;
@@ -23,6 +22,7 @@ struct TableInner {
     records: HashSet<RecordId>,
 }
 
+#[derive(Clone)]
 pub struct Table(TypedArc<(TableId, RwLock<TableInner>)>);
 
 impl Table {
@@ -67,50 +67,34 @@ impl Table {
             .collect()
     }
 
-    pub fn load_data<T, U>(&self, columns: T) -> Result<()>
-    where
-        T: IntoIterator<Item = (ColumnId, U)>,
-        U: AsRef<[u8]>,
-    {
+    pub fn create_column(&self, kind: impl Into<ExpectedType>) -> Result<ColumnId> {
         let table_id = self.0 .0;
         let mut inner = self.0 .1.write();
 
-        let mut columns = columns
-            .into_iter()
-            .map(|(column_id, v)| {
-                if column_id.table() != table_id {
-                    anyhow::bail!("Column does not belong to this table");
-                }
+        let new_id = ColumnId::new(table_id, kind);
 
-                Ok((column_id, Loader::new(column_id.kind(), v)?))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        if inner.columns.contains(&new_id) {
+            anyhow::bail!("Column already exists");
+        }
 
-        let mut pending_cells = Buffer::with_capacity(columns.len() as u32);
+        inner.columns.insert(new_id);
 
-        loop {
-            let record_id = RecordId::new(table_id);
-            let mut columns_depleted = 0;
+        Ok(new_id)
+    }
 
-            for (column_id, loader) in &mut columns {
-                let column_id = *column_id;
-                let value = loader.try_next()?;
+    pub fn load_data(&self, column: ColumnId, data: impl AsRef<[u8]>) -> Result<()> {
+        let table_id = self.0 .0;
+        let mut inner = self.0 .1.write();
 
-                if value.is_none() {
-                    columns_depleted += 1;
-                }
+        if column.table() != table_id {
+            anyhow::bail!("Column does not belong to this table");
+        }
 
-                pending_cells.push((column_id, record_id, value));
-            }
+        let mut loader = Loader::new(column.kind(), data.as_ref())?;
 
-            if columns_depleted == columns.len() {
-                break;
-            }
-
-            for (column_id, record_id, value) in pending_cells.drain(..) {
-                inner.cell_pool.new_cell(column_id, record_id, value)?;
-            }
-
+        while let Some((head, value)) = loader.try_next()? {
+            let record_id = RecordId::from_array(head, table_id);
+            inner.cell_pool.new_cell(column, record_id, Some(value))?;
             inner.records.insert(record_id);
         }
 
@@ -120,6 +104,21 @@ impl Table {
     pub fn get_cell(&self, key: impl CellKey) -> Option<Cell> {
         let inner = self.0 .1.read();
         inner.cell_pool.get(key)
+    }
+}
+
+impl std::fmt::Debug for Table {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !f.alternate() {
+            f.debug_struct("Table")
+                .field("columns", &self.columns())
+                .finish()
+        } else {
+            f.debug_struct("Table")
+                .field("id", &self.0 .0)
+                .field("columns", &self.columns())
+                .finish()
+        }
     }
 }
 
@@ -176,7 +175,9 @@ impl std::hash::Hash for Record {
 impl std::fmt::Debug for Record {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if !f.alternate() {
-            std::fmt::Debug::fmt(&self.id, f)
+            f.debug_struct("Record")
+                .field("fields", &self.get_cell_map())
+                .finish()
         } else {
             f.debug_struct("Record")
                 .field("id", &self.id)
@@ -186,38 +187,177 @@ impl std::fmt::Debug for Record {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use data_types::{number::IntSize, DataType};
+pub struct Loader<T: AsRef<[u8]>> {
+    src: T,
+    kind: ExpectedType,
+    index: usize,
+}
 
-    use super::*;
+impl<T: AsRef<[u8]>> Loader<T> {
+    pub fn new(kind: impl Into<ExpectedType>, src: T) -> Result<Self> {
+        let kind: ExpectedType = kind.into();
+        let src_len = src.as_ref().len();
 
-    #[test]
-    fn test_table() -> Result<()> {
-        let cell_pool = CellPool::new();
-
-        let table = Table::new(
-            &cell_pool,
-            vec![
-                DataType::Integer(IntSize::X8),
-                DataType::Integer(IntSize::X8),
-            ],
-        );
-
-        let (col_1, col_2) = {
-            let columns = table.columns();
-            let mut columns = columns.iter().copied();
-            (columns.next().unwrap(), columns.next().unwrap())
-        };
-
-        table.load_data(vec![(col_1, [1u8, 3, 5]), (col_2, [2u8, 4, 6])])?;
-
-        let records = table.records();
-
-        for record in records {
-            println!("Record {:#?}", record);
+        if src_len % kind.byte_count() != 0 {
+            anyhow::bail!("buffer is not divisible by the size of intended type")
         }
+
+        Ok(Self {
+            src,
+            kind: kind.into(),
+            index: 0,
+        })
+    }
+
+    pub fn set_index(&mut self, index: usize) {
+        self.index = index;
+    }
+
+    pub fn skip(&mut self, count: usize) {
+        self.index += count;
+    }
+
+    pub fn rewind(&mut self, count: usize) {
+        self.index -= count;
+    }
+
+    pub fn try_next(&mut self) -> Result<Option<([u8; 4], DataValue)>> {
+        let head_len = 4;
+        let body_len = self.kind.byte_count();
+        let data_len = head_len + body_len;
+
+        let nil_loc = self.index * data_len;
+        let head_start = nil_loc + 1;
+        let body_start = head_start + head_len;
+        let byte_after = nil_loc + data_len;
+
+        let src_len = self.src.as_ref().len();
+
+        if nil_loc >= src_len {
+            return Ok(None);
+        }
+
+        self.index += 1;
+
+        let data = self.src.as_ref() as *const [u8];
+        let mut head = [0; 4];
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                (&*data)[head_start..body_start].as_ptr(),
+                head.as_mut_ptr(),
+                4,
+            );
+
+            if (&*data)[nil_loc] == 0 {
+                Ok(Some((head, DataValue::Nil(self.kind))))
+            } else {
+                Ok(Some((
+                    head,
+                    DataValue::try_from_any(self.kind, &(&*data)[body_start..byte_after])?,
+                )))
+            }
+        }
+    }
+}
+
+pub struct Unloader<'a, T: AsMut<[u8]> + 'a, U: IntoIterator<Item = &'a DataValue>> {
+    dest: T,
+    src: U::IntoIter,
+    index: usize,
+}
+
+impl<'a, T: AsMut<[u8]> + 'a, U: IntoIterator<Item = &'a DataValue>> Unloader<'a, T, U> {
+    pub fn new(dest: T, src: U) -> Self {
+        Self {
+            dest,
+            src: src.into_iter(),
+            index: 0,
+        }
+    }
+
+    pub fn set_index(&mut self, index: usize) {
+        self.index = index;
+    }
+
+    pub fn skip(&mut self, count: usize) {
+        self.index += count;
+    }
+
+    pub fn rewind(&mut self, count: usize) {
+        self.index -= count;
+    }
+
+    pub fn try_next(&mut self) -> Result<Option<()>> {
+        let value = self.src.next();
+
+        if let Some(value) = value {
+            let count = value.get_type().byte_count();
+            let nil_byte = self.index * count;
+            let start = nil_byte + 1;
+            let end = nil_byte + count;
+
+            let dest = self.dest.as_mut();
+
+            if count > dest.len() {
+                anyhow::bail!("buffer is too small")
+            }
+
+            if nil_byte == dest.len() {
+                return Ok(None);
+            }
+
+            let dest = &mut dest[nil_byte..end];
+
+            self.index += 1;
+
+            value.write_to(dest)?;
+
+            Ok(Some(()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn all(&mut self) -> Result<()> {
+        while self.try_next()?.is_some() {}
 
         Ok(())
     }
 }
+
+// #[cfg(test)]
+// mod test {
+//     use data_types::{number::IntSize, DataType};
+
+//     use super::*;
+
+//     #[test]
+//     fn test_table() -> Result<()> {
+//         let cell_pool = CellPool::new();
+
+//         let table = Table::new(
+//             &cell_pool,
+//             vec![
+//                 DataType::Integer(IntSize::X8),
+//                 DataType::Integer(IntSize::X8),
+//             ],
+//         );
+
+//         let (col_1, col_2) = {
+//             let columns = table.columns();
+//             let mut columns = columns.iter().copied();
+//             (columns.next().unwrap(), columns.next().unwrap())
+//         };
+
+//         table.load_data(vec![(col_1, [1u8, 3, 5]), (col_2, [2u8, 4, 6])])?;
+
+//         let records = table.records();
+
+//         for record in records {
+//             println!("Record {:#?}", record);
+//         }
+
+//         Ok(())
+//     }
+// }

@@ -65,10 +65,9 @@ impl Text {
         self.0.capacity()
     }
 
-    #[allow(dead_code)]
     #[inline(always)]
-    fn available(&self) -> u32 {
-        self.capacity() - self.len()
+    pub fn available(&self) -> u32 {
+        self.0.available()
     }
 
     #[inline(always)]
@@ -106,6 +105,10 @@ impl Text {
 
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_slice()
+    }
+
+    pub fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
     }
 }
 

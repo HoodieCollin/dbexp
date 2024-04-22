@@ -44,8 +44,9 @@ impl DataType {
         DataValue::Nil(self.into())
     }
 
+    /// First byte is determines if `Nil` or not.
     pub fn byte_count(self) -> usize {
-        match self {
+        1 + match self {
             Self::O16 => size_of::<oid::O16>(),
             Self::O32 => size_of::<oid::O32>(),
             Self::O64 => size_of::<oid::O64>(),
@@ -157,6 +158,71 @@ impl DataValue {
             DataValue::Text(val) => ExpectedType(DataType::Text(val.capacity() as u32)),
             DataValue::Bytes(val) => ExpectedType(DataType::Bytes(val.capacity() as u32)),
         }
+    }
+
+    pub fn write_to(&self, dest: &mut [u8]) -> Result<()> {
+        match self {
+            DataValue::Nil(ty) => {
+                let _ = ty.write_zeros(dest)?;
+                return Ok(());
+            }
+            _ => {}
+        };
+
+        unsafe {
+            ptr::write(dest.as_mut_ptr(), 1u8);
+        }
+
+        let dest = &mut dest[1..];
+
+        match self {
+            DataValue::Nil(_) => unreachable!(),
+            DataValue::O16(val) => {
+                let arr = val.into_array();
+                dest.copy_from_slice(&arr);
+            }
+            DataValue::O32(val) => {
+                let arr = val.into_array();
+                dest.copy_from_slice(&arr);
+            }
+            DataValue::O64(val) => {
+                let arr = val.into_array();
+                dest.copy_from_slice(&arr);
+            }
+            DataValue::Bool(val) => {
+                dest[0] = *val as u8;
+            }
+            DataValue::Integer(val) => {
+                let (arr, size) = val.into_array();
+                dest.copy_from_slice(&arr[..size.byte_count()]);
+            }
+            DataValue::Float(val) => {
+                let arr = val.into_array();
+                dest.copy_from_slice(&arr);
+            }
+            DataValue::Timestamp(val) => {
+                let arr = val.into_array();
+                dest.copy_from_slice(&arr);
+            }
+            DataValue::Text(val) => unsafe {
+                ptr::copy_nonoverlapping(val.as_ptr(), dest.as_mut_ptr(), val.len() as usize);
+                ptr::write_bytes(
+                    dest.as_mut_ptr().add(val.len() as usize),
+                    0,
+                    val.available() as usize,
+                );
+            },
+            DataValue::Bytes(val) => unsafe {
+                ptr::copy_nonoverlapping(val.as_ptr(), dest.as_mut_ptr(), val.len() as usize);
+                ptr::write_bytes(
+                    dest.as_mut_ptr().add(val.len() as usize),
+                    0,
+                    val.available() as usize,
+                );
+            },
+        }
+
+        Ok(())
     }
 
     pub fn try_integer_from_number<T: number::Number>(
@@ -806,63 +872,6 @@ impl From<text::Text> for DataValue {
 impl From<bytes::Bytes> for DataValue {
     fn from(value: bytes::Bytes) -> Self {
         DataValue::Bytes(value)
-    }
-}
-
-pub struct Loader<T: AsRef<[u8]>> {
-    src: T,
-    kind: ExpectedType,
-    index: usize,
-}
-
-impl<T: AsRef<[u8]>> Loader<T> {
-    pub fn new(kind: impl Into<ExpectedType>, src: T) -> Result<Self> {
-        let kind: ExpectedType = kind.into();
-        let src_len = src.as_ref().len();
-
-        if src_len % kind.byte_count() != 0 {
-            anyhow::bail!("buffer is divisible by the size of intended type")
-        }
-
-        Ok(Self {
-            src,
-            kind: kind.into(),
-            index: 0,
-        })
-    }
-
-    pub fn set_index(&mut self, index: usize) {
-        self.index = index;
-    }
-
-    pub fn skip(&mut self, count: usize) {
-        self.index += count;
-    }
-
-    pub fn rewind(&mut self, count: usize) {
-        self.index -= count;
-    }
-
-    pub fn try_next(&mut self) -> Result<Option<DataValue>> {
-        let count = self.kind.byte_count();
-        let start = self.index * count;
-        let end = start + count;
-
-        let data_count = self.src.as_ref().len();
-        let data = self.src.as_ref() as *const [u8];
-
-        if start >= data_count {
-            return Ok(None);
-        }
-
-        self.index += 1;
-
-        unsafe {
-            Ok(Some(DataValue::try_from_any(
-                self.kind,
-                &(&*data)[start..end],
-            )?))
-        }
     }
 }
 

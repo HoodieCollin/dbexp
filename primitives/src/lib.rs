@@ -13,12 +13,14 @@ use std::{
 use anyhow::Result;
 use parking_lot::RwLock;
 
+pub mod block;
 pub mod buffer;
 pub mod bump;
 pub mod graph;
 pub mod map;
 pub mod set;
 pub mod shared_object;
+pub mod string;
 pub mod typed_arc;
 
 /// ## !!! WARNING !!!

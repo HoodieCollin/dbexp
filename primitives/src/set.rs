@@ -4,10 +4,9 @@ use anyhow::Result;
 use indexmap::IndexSet;
 use serde::Serialize;
 
-use crate::{sealed::GlobalRecycler, shared_object::SharedObject, Recycler};
+use crate::{sealed::GlobalRecycler, Recycler};
 
 pub mod ordered;
-pub mod shared;
 
 crate::new_global_recycler!(SetRecycler);
 
@@ -74,11 +73,42 @@ impl<T: Eq + std::hash::Hash> Set<T> {
             SetRecycler,
         ))
     }
+}
 
-    pub fn into_shared(self) -> shared::SharedSet<T>
-    where
-        T: Send + Sync,
-    {
-        shared::SharedSet(SharedObject::new(self))
+impl<T: Eq + std::hash::Hash> Default for Set<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'de, T: Eq + std::hash::Hash + serde::Deserialize<'de>> serde::Deserialize<'de> for Set<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SetVisitor<T>(std::marker::PhantomData<T>);
+
+        impl<'de, T: Eq + std::hash::Hash + serde::Deserialize<'de>> serde::de::Visitor<'de>
+            for SetVisitor<T>
+        {
+            type Value = Set<T>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a set")
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut set = Set::new();
+                seq.size_hint().map(|size| set.reserve(size));
+
+                while let Some(value) = seq.next_element()? {
+                    set.insert(value);
+                }
+
+                Ok(set)
+            }
+        }
+
+        deserializer.deserialize_seq(SetVisitor(std::marker::PhantomData))
     }
 }

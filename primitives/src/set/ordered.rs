@@ -3,9 +3,7 @@ use std::{cell::LazyCell, collections::BTreeSet};
 use anyhow::Result;
 use serde::Serialize;
 
-use crate::{sealed::GlobalRecycler, shared_object::SharedObject, Recycler};
-
-pub mod shared;
+use crate::{sealed::GlobalRecycler, Recycler};
 
 crate::new_global_recycler!(OrdSetRecycler);
 
@@ -37,13 +35,6 @@ impl<T> OrdSet<T> {
     pub fn new() -> Self {
         Self(BTreeSet::new_in(OrdSetRecycler))
     }
-
-    pub fn into_shared(self) -> shared::SharedOrdSet<T>
-    where
-        T: Send + Sync,
-    {
-        shared::SharedOrdSet(SharedObject::new(self))
-    }
 }
 
 impl<T: Serialize> Serialize for OrdSet<T> {
@@ -57,5 +48,11 @@ impl<T: Serialize> Serialize for OrdSet<T> {
         }
 
         seq.end()
+    }
+}
+
+impl<T> Default for OrdSet<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }

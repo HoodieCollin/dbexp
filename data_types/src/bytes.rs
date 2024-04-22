@@ -51,9 +51,8 @@ impl Bytes {
         Ok(buf)
     }
 
-    #[allow(dead_code)]
     #[inline(always)]
-    fn available(&self) -> u32 {
+    pub fn available(&self) -> u32 {
         self.capacity() - self.len()
     }
 
@@ -74,6 +73,10 @@ impl Bytes {
 
     pub fn try_push_bytes(&mut self, bytes: impl AsRef<[u8]>) -> Result<()> {
         self.0.extend_from_slice(bytes.as_ref())
+    }
+
+    pub fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
     }
 }
 

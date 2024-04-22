@@ -43,6 +43,14 @@ impl RecordId {
     pub fn table(&self) -> TableId {
         self.1
     }
+
+    pub fn from_array(bytes: [u8; 4], table: TableId) -> Self {
+        Self(oid::O32::from_array(bytes), table)
+    }
+
+    pub fn into_array(self) -> [u8; 4] {
+        self.0.into_array()
+    }
 }
 
 /// This identifier is __NOT__ stable across restarts or even when a cell is unloaded and reloaded.

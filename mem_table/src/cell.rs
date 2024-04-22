@@ -398,6 +398,14 @@ impl Clone for CellPool {
     }
 }
 
+impl std::fmt::Debug for CellPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("CellPool")
+            .field(&self.0.lookup.read())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use data_types::{number, DataType};

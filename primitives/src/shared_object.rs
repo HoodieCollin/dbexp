@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{force_transmute, typed_arc::TypedArc};
 
+#[derive(Default)]
 #[repr(transparent)]
 pub struct SharedObject<T: 'static>(TypedArc<RwLock<T>>);
 

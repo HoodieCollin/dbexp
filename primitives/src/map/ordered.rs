@@ -3,9 +3,7 @@ use std::{cell::LazyCell, collections::BTreeMap};
 use anyhow::Result;
 use serde::Serialize;
 
-use crate::{sealed::GlobalRecycler, shared_object::SharedObject, Recycler};
-
-pub mod shared;
+use crate::{sealed::GlobalRecycler, Recycler};
 
 crate::new_global_recycler!(OrdMapRecycler);
 
@@ -37,14 +35,6 @@ impl<K, V> OrdMap<K, V> {
     pub fn new() -> Self {
         Self(BTreeMap::new_in(OrdMapRecycler))
     }
-
-    pub fn into_shared(self) -> shared::SharedOrdMap<K, V>
-    where
-        K: Send + Sync,
-        V: Send + Sync,
-    {
-        shared::SharedOrdMap(SharedObject::new(self))
-    }
 }
 
 impl<K: Serialize, V: Serialize> Serialize for OrdMap<K, V> {
@@ -58,5 +48,11 @@ impl<K: Serialize, V: Serialize> Serialize for OrdMap<K, V> {
         }
 
         map.end()
+    }
+}
+
+impl<K, V> Default for OrdMap<K, V> {
+    fn default() -> Self {
+        Self::new()
     }
 }
