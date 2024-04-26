@@ -1,6 +1,0 @@
-[submodule "submodules/petgraph"]
-	path = submodules/petgraph
-	url = git@github.com:HoodieCollin/petgraph.git
-[submodule "submodules/indexmap"]
-	path = submodules/indexmap
-	url = git@github.com:HoodieCollin/indexmap.git

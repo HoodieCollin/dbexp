@@ -6,11 +6,11 @@ use anyhow::Result;
 pub struct Text(Bytes);
 
 impl Text {
-    pub fn new(cap: u32) -> Self {
+    pub fn new(cap: usize) -> Self {
         Self(Bytes::new(cap))
     }
 
-    pub fn try_from_str(value: &str, cap: u32) -> Result<Self> {
+    pub fn try_from_str(value: &str, cap: usize) -> Result<Self> {
         if value.len() > cap as usize {
             anyhow::bail!("Text buffer is too small for string");
         }
@@ -18,7 +18,7 @@ impl Text {
         Ok(Self(Bytes::try_from_slice(value.as_bytes(), cap)?))
     }
 
-    pub fn try_from_slice(bytes: &[u8], cap: u32) -> Result<Self> {
+    pub fn try_from_slice(bytes: &[u8], cap: usize) -> Result<Self> {
         if bytes.len() > cap as usize {
             anyhow::bail!("Text buffer is too small for slice");
         }
@@ -29,7 +29,7 @@ impl Text {
         Ok(Self(Bytes::try_from_slice(bytes, cap)?))
     }
 
-    pub fn try_from_i128(value: i128, cap: u32) -> Result<Self> {
+    pub fn try_from_i128(value: i128, cap: usize) -> Result<Self> {
         let mut num = itoa::Buffer::new();
         let value = num.format(value);
 
@@ -42,7 +42,7 @@ impl Text {
         Ok(buf)
     }
 
-    pub fn try_from_f64(value: f64, cap: u32) -> Result<Self> {
+    pub fn try_from_f64(value: f64, cap: usize) -> Result<Self> {
         let mut num = ryu::Buffer::new();
         let value = num.format(value);
 
@@ -56,17 +56,17 @@ impl Text {
     }
 
     #[inline(always)]
-    pub fn len(&self) -> u32 {
+    pub fn len(&self) -> usize {
         self.0.len()
     }
 
     #[inline(always)]
-    pub fn capacity(&self) -> u32 {
+    pub fn capacity(&self) -> usize {
         self.0.capacity()
     }
 
     #[inline(always)]
-    pub fn available(&self) -> u32 {
+    pub fn available(&self) -> usize {
         self.0.available()
     }
 
@@ -95,16 +95,16 @@ impl Text {
 
     pub fn as_str(&self) -> &str {
         // SAFETY: Text is guaranteed to be valid UTF-8
-        unsafe { std::str::from_utf8_unchecked(self.0.as_slice()) }
+        unsafe { std::str::from_utf8_unchecked(self.0 .0.as_slice()) }
     }
 
     pub fn as_str_mut(&mut self) -> &mut str {
         // SAFETY: Text is guaranteed to be valid UTF-8
-        unsafe { std::str::from_utf8_unchecked_mut(self.0.as_slice_mut()) }
+        unsafe { std::str::from_utf8_unchecked_mut(self.0 .0.as_mut_slice()) }
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        self.0.as_slice()
+        self.0 .0.as_slice()
     }
 
     pub fn as_ptr(&self) -> *const u8 {

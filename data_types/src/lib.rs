@@ -9,14 +9,13 @@ use std::{
 };
 
 use anyhow::Result;
-use number::IntSize;
 use serde::{Deserialize, Serialize};
 
-use crate::number::Number;
+use crate::number::Builtin;
 
 pub mod bytes;
-pub mod float;
-pub mod integer;
+// pub mod float;
+// pub mod integer;
 pub mod number;
 pub mod oid;
 pub mod text;
@@ -31,8 +30,7 @@ pub enum DataType {
     O32,
     O64,
     Bool,
-    Integer(number::IntSize),
-    Float,
+    Number,
     Timestamp,
     Text(u32),
     Bytes(u32),
@@ -44,15 +42,13 @@ impl DataType {
         DataValue::Nil(self.into())
     }
 
-    /// First byte is determines if `Nil` or not.
     pub fn byte_count(self) -> usize {
-        1 + match self {
+        match self {
             Self::O16 => size_of::<oid::O16>(),
             Self::O32 => size_of::<oid::O32>(),
             Self::O64 => size_of::<oid::O64>(),
             Self::Bool => 1,
-            Self::Integer(size) => size.byte_count(),
-            Self::Float => size_of::<f64>(),
+            Self::Number => number::Number::BYTE_COUNT,
             Self::Timestamp => size_of::<timestamp::Timestamp>(),
             Self::Text(size) => size as usize,
             Self::Bytes(size) => size as usize,
@@ -127,8 +123,7 @@ pub enum DataValue {
     O32(oid::O32),
     O64(oid::O64),
     Bool(bool),
-    Integer(integer::Integer),
-    Float(float::Float),
+    Number(number::Number),
     Timestamp(timestamp::Timestamp),
     Text(text::Text),
     Bytes(bytes::Bytes),
@@ -152,8 +147,7 @@ impl DataValue {
             DataValue::O32(_) => ExpectedType(DataType::O32),
             DataValue::O64(_) => ExpectedType(DataType::O64),
             DataValue::Bool(_) => ExpectedType(DataType::Bool),
-            DataValue::Integer(i) => ExpectedType(DataType::Integer(i.size())),
-            DataValue::Float(_) => ExpectedType(DataType::Float),
+            DataValue::Number(_) => ExpectedType(DataType::Number),
             DataValue::Timestamp(_) => ExpectedType(DataType::Timestamp),
             DataValue::Text(val) => ExpectedType(DataType::Text(val.capacity() as u32)),
             DataValue::Bytes(val) => ExpectedType(DataType::Bytes(val.capacity() as u32)),
@@ -192,11 +186,7 @@ impl DataValue {
             DataValue::Bool(val) => {
                 dest[0] = *val as u8;
             }
-            DataValue::Integer(val) => {
-                let (arr, size) = val.into_array();
-                dest.copy_from_slice(&arr[..size.byte_count()]);
-            }
-            DataValue::Float(val) => {
+            DataValue::Number(val) => {
                 let arr = val.into_array();
                 dest.copy_from_slice(&arr);
             }
@@ -225,19 +215,12 @@ impl DataValue {
         Ok(())
     }
 
-    pub fn try_integer_from_number<T: number::Number>(
-        n: T,
-        size_req: Option<IntSize>,
-    ) -> Result<Self> {
-        Ok(DataValue::Integer(integer::Integer::try_from_number(
-            n, size_req,
-        )?))
+    pub fn try_integer_from_number<T: number::Builtin>(x: T) -> Result<Self> {
+        Ok(DataValue::Number(number::Number::try_from_builtin(x)?))
     }
 
-    pub fn try_integer_from_str(s: &str, size_req: Option<IntSize>) -> Result<Self> {
-        Ok(DataValue::Integer(integer::Integer::try_from_str(
-            s, size_req,
-        )?))
+    pub fn try_integer_from_str(s: &str) -> Result<Self> {
+        Ok(DataValue::Number(number::Number::try_from_str(s)?))
     }
 
     /// Tries to replace the current value with the given value. If the value is not of the
@@ -310,10 +293,8 @@ impl DataValue {
             DataType::Bool => {
                 if let Some(val) = value.downcast_ref::<bool>() {
                     return Ok(DataValue::Bool(*val));
-                } else if let Some(val) = value.downcast_ref::<integer::Integer>() {
+                } else if let Some(val) = value.downcast_ref::<number::Number>() {
                     return Ok(DataValue::Bool(val.is_zero()));
-                } else if let Some(val) = value.downcast_ref::<float::Float>() {
-                    return Ok(DataValue::Bool(val.as_i128()? != 0));
                 } else if let Some(val) = value.downcast_ref::<text::Text>() {
                     return Ok(DataValue::Bool(!val.is_empty()));
                 } else if let Some(val) = value.downcast_ref::<bytes::Bytes>() {
@@ -356,172 +337,64 @@ impl DataValue {
                     return Ok(DataValue::Bool(val.as_i128()? != 0));
                 }
             }
-            DataType::Integer(size) => {
-                if let Some(val) = value.downcast_ref::<integer::Integer>() {
-                    return Ok(DataValue::Integer(val.try_to_fit(size)?));
-                } else if let Some(val) = value.downcast_ref::<float::Float>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        val.as_i128()?,
-                        Some(size),
-                    )?));
-                } else if let Some(val) = value.downcast_ref::<timestamp::Timestamp>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        val.as_i128(),
-                        Some(size),
-                    )?));
+            DataType::Number => {
+                if let Some(val) = value.downcast_ref::<number::Number>() {
+                    return Ok(DataValue::Number(*val));
                 } else if let Some(val) = value.downcast_ref::<text::Text>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_str(
+                    return Ok(DataValue::Number(number::Number::try_from_str(
                         val.as_str(),
-                        Some(size),
                     )?));
                 } else if let Some(val) = value.downcast_ref::<bytes::Bytes>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_slice(
-                        val, size,
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_slice(val)?));
                 } else if let Some(val) = value.downcast_ref::<&str>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_str(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_str(*val)?));
                 } else if let Some(val) = value.downcast_ref::<String>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_str(
+                    return Ok(DataValue::Number(number::Number::try_from_str(
                         val.as_str(),
-                        Some(size),
                     )?));
                 } else if let Some(val) = value.downcast_ref::<&[u8]>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_slice(
-                        val, size,
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_slice(val)?));
                 } else if let Some(val) = value.downcast_ref::<Vec<u8>>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_slice(
-                        &val, size,
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_slice(&val)?));
                 } else if let Some(val) = value.downcast_ref::<i8>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<i16>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<i32>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<i64>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<i128>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<isize>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<u8>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<u16>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<u32>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<u64>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<u128>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<usize>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        *val,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<f32>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        val.as_i128()?,
-                        Some(size),
-                    )?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 } else if let Some(val) = value.downcast_ref::<f64>() {
-                    return Ok(DataValue::Integer(integer::Integer::try_from_number(
-                        val.as_i128()?,
-                        Some(size),
-                    )?));
-                }
-            }
-            DataType::Float => {
-                if let Some(val) = value.downcast_ref::<integer::Integer>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(
-                        val.as_i128(),
-                    )?));
-                } else if let Some(val) = value.downcast_ref::<float::Float>() {
-                    return Ok(DataValue::Float(*val));
-                } else if let Some(val) = value.downcast_ref::<text::Text>() {
-                    return Ok(DataValue::Float(float::Float::try_from_str(val.as_str())?));
-                } else if let Some(val) = value.downcast_ref::<bytes::Bytes>() {
-                    return Ok(DataValue::Float(float::Float::try_from_slice(val)?));
-                } else if let Some(val) = value.downcast_ref::<&str>() {
-                    return Ok(DataValue::Float(float::Float::try_from_str(*val)?));
-                } else if let Some(val) = value.downcast_ref::<String>() {
-                    return Ok(DataValue::Float(float::Float::try_from_str(val.as_str())?));
-                } else if let Some(val) = value.downcast_ref::<&[u8]>() {
-                    return Ok(DataValue::Float(float::Float::try_from_slice(val)?));
-                } else if let Some(val) = value.downcast_ref::<Vec<u8>>() {
-                    return Ok(DataValue::Float(float::Float::try_from_slice(&val)?));
-                } else if let Some(val) = value.downcast_ref::<i8>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<i16>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<i32>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<i64>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<i128>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<isize>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<u8>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<u16>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<u32>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<u64>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<u128>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<usize>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<f32>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
-                } else if let Some(val) = value.downcast_ref::<f64>() {
-                    return Ok(DataValue::Float(float::Float::try_from_number(*val)?));
+                    return Ok(DataValue::Number(number::Number::try_from_builtin(*val)?));
                 }
             }
             DataType::Timestamp => {
-                if let Some(val) = value.downcast_ref::<integer::Integer>() {
-                    return Ok(DataValue::Timestamp(timestamp::Timestamp::try_from_number(
-                        val.as_i64()?,
-                    )?));
+                if let Some(val) = value.downcast_ref::<number::Number>() {
+                    return Ok(DataValue::Timestamp(match *val {
+                        number::Number::Integer(i) => timestamp::Timestamp::try_from_number(i)?,
+                        number::Number::Unsigned(u) => timestamp::Timestamp::try_from_number(u)?,
+                        _ => {
+                            anyhow::bail!("expected integer or unsigned number")
+                        }
+                    }));
                 } else if let Some(val) = value.downcast_ref::<text::Text>() {
                     return Ok(DataValue::Timestamp(timestamp::Timestamp::try_from_str(
                         val,
@@ -599,6 +472,8 @@ impl DataValue {
                 }
             }
             DataType::Text(cap) => {
+                let cap = cap as usize;
+
                 if let Some(val) = value.downcast_ref::<text::Text>() {
                     if val.capacity() != cap {
                         anyhow::bail!(
@@ -617,14 +492,9 @@ impl DataValue {
                     return Ok(DataValue::Text(text::Text::try_from_slice(val, cap)?));
                 } else if let Some(val) = value.downcast_ref::<Vec<u8>>() {
                     return Ok(DataValue::Text(text::Text::try_from_slice(&val, cap)?));
-                } else if let Some(val) = value.downcast_ref::<integer::Integer>() {
-                    return Ok(DataValue::Text(text::Text::try_from_i128(
-                        val.as_i128(),
-                        cap,
-                    )?));
-                } else if let Some(val) = value.downcast_ref::<float::Float>() {
-                    return Ok(DataValue::Text(text::Text::try_from_f64(
-                        val.as_f64(),
+                } else if let Some(val) = value.downcast_ref::<number::Number>() {
+                    return Ok(DataValue::Text(text::Text::try_from_str(
+                        &val.to_string(),
                         cap,
                     )?));
                 } else if let Some(val) = value.downcast_ref::<timestamp::Timestamp>() {
@@ -635,6 +505,8 @@ impl DataValue {
                 }
             }
             DataType::Bytes(cap) => {
+                let cap = cap as usize;
+
                 if let Some(val) = value.downcast_ref::<bytes::Bytes>() {
                     if val.capacity() != cap {
                         anyhow::bail!(
@@ -662,10 +534,10 @@ impl DataValue {
 
     pub fn try_cast(&self, ty: impl Into<ExpectedType>) -> Result<Self> {
         use DataType::{
-            Bool as BoolTy, Bytes as BytesTy, Float as FloatTy, Integer as IntegerTy,
-            Text as TextTy, Timestamp as TimeStampTy,
+            Bool as BoolTy, Bytes as BytesTy, Number as NumberTy, Text as TextTy,
+            Timestamp as TimeStampTy,
         };
-        use DataValue::{Bool, Bytes, Float, Integer, Text, Timestamp};
+        use DataValue::{Bool, Bytes, Number, Text, Timestamp};
 
         let expected_ty: ExpectedType = ty.into();
         let ty = expected_ty.into_inner();
@@ -679,49 +551,52 @@ impl DataValue {
                 BoolTy => Ok(Bool(*x)),
                 _ => anyhow::bail!("cannot cast bool to {:?}", ty),
             },
-            Integer(x) => match ty {
-                BoolTy => Ok(Bool(x.as_i128() != 0)),
-                IntegerTy(size) => Ok(Integer(x.try_to_fit(size)?)),
-                FloatTy => Ok(Float(float::Float::try_from_number(x.as_i128())?)),
-                TextTy(cap) => Ok(Text(text::Text::try_from_i128(x.as_i128(), cap)?)),
-                BytesTy(cap) => Ok(Bytes(bytes::Bytes::try_from_i128(x.as_i128(), cap)?)),
-                TimeStampTy => Ok(Timestamp(timestamp::Timestamp::try_from_number(
-                    x.as_i128(),
+            Number(x) => match ty {
+                BoolTy => Ok(Bool(x.is_zero())),
+                NumberTy => Ok(Number(*x)),
+                TextTy(cap) => Ok(Text(text::Text::try_from_str(
+                    &x.to_string(),
+                    cap as usize,
                 )?)),
-                _ => anyhow::bail!("cannot cast integer to {:?}", ty),
-            },
-            Float(x) => match ty {
-                BoolTy => Ok(Bool(x.as_i128()? != 0)),
-                IntegerTy(size) => Ok(Integer(integer::Integer::try_from_number(
-                    x.as_i128()?,
-                    Some(size),
+                BytesTy(cap) => Ok(Bytes(bytes::Bytes::try_from_slice(
+                    &x.to_string().as_bytes(),
+                    cap as usize,
                 )?)),
-                FloatTy => Ok(Float(*x)),
-                TextTy(cap) => Ok(Text(text::Text::try_from_f64(x.as_f64(), cap)?)),
-                BytesTy(cap) => Ok(Bytes(bytes::Bytes::try_from_f64(x.as_f64(), cap)?)),
-                TimeStampTy => Ok(Timestamp(timestamp::Timestamp::try_from_number(
-                    x.as_i64()?,
-                )?)),
-                _ => anyhow::bail!("cannot cast float to {:?}", ty),
+                TimeStampTy => Ok(Timestamp(match *x {
+                    number::Number::Integer(i) => timestamp::Timestamp::try_from_number(i)?,
+                    number::Number::Unsigned(u) => timestamp::Timestamp::try_from_number(u)?,
+                    _ => {
+                        anyhow::bail!(
+                            "expected integer or unsigned number while casting to timestamp"
+                        )
+                    }
+                })),
+                _ => anyhow::bail!("cannot cast number to {:?}", ty),
             },
             Timestamp(x) => match ty {
-                IntegerTy(size) => Ok(Integer(integer::Integer::try_from_number(
-                    x.as_i128(),
-                    Some(size),
-                )?)),
-                FloatTy => Ok(Float(float::Float::try_from_number(x.as_i128())?)),
-                TextTy(cap) => Ok(Text(text::Text::try_from_i128(x.as_i128(), cap)?)),
+                NumberTy => Ok(Number(number::Number::try_from_builtin(x.as_i128())?)),
+                TextTy(cap) => Ok(Text(text::Text::try_from_i128(x.as_i128(), cap as usize)?)),
                 TimeStampTy => Ok(Timestamp(*x)),
                 _ => anyhow::bail!("cannot cast timestamp to {:?}", ty),
             },
             Text(x) => match ty {
-                TextTy(cap) => Ok(Text(text::Text::try_from_str(x, cap)?)),
-                BytesTy(cap) => Ok(Bytes(bytes::Bytes::try_from_slice(x.as_bytes(), cap)?)),
+                NumberTy => Ok(Number(number::Number::try_from_str(x.as_str())?)),
+                TextTy(cap) => Ok(Text(text::Text::try_from_str(x, cap as usize)?)),
+                BytesTy(cap) => Ok(Bytes(bytes::Bytes::try_from_slice(
+                    x.as_bytes(),
+                    cap as usize,
+                )?)),
                 _ => anyhow::bail!("cannot cast text to {:?}", ty),
             },
             Bytes(x) => match ty {
-                TextTy(cap) => Ok(Text(text::Text::try_from_slice(x.as_slice(), cap)?)),
-                BytesTy(cap) => Ok(Bytes(bytes::Bytes::try_from_slice(x.as_slice(), cap)?)),
+                TextTy(cap) => Ok(Text(text::Text::try_from_slice(
+                    x.as_slice(),
+                    cap as usize,
+                )?)),
+                BytesTy(cap) => Ok(Bytes(bytes::Bytes::try_from_slice(
+                    x.as_slice(),
+                    cap as usize,
+                )?)),
                 _ => anyhow::bail!("cannot cast bytes to {:?}", ty),
             },
             _ => anyhow::bail!("cannot cast {:?} to {:?}", self, ty),
@@ -755,25 +630,25 @@ impl From<bool> for DataValue {
 
 impl From<u8> for DataValue {
     fn from(value: u8) -> Self {
-        DataValue::Integer(integer::Integer::try_from_number(value, None).expect("u8 always fits"))
+        DataValue::Number(number::Number::try_from_builtin(value).expect("u8 always fits"))
     }
 }
 
 impl From<u16> for DataValue {
     fn from(value: u16) -> Self {
-        DataValue::Integer(integer::Integer::try_from_number(value, None).expect("u16 always fits"))
+        DataValue::Number(number::Number::try_from_builtin(value).expect("u16 always fits"))
     }
 }
 
 impl From<u32> for DataValue {
     fn from(value: u32) -> Self {
-        DataValue::Integer(integer::Integer::try_from_number(value, None).expect("u32 always fits"))
+        DataValue::Number(number::Number::try_from_builtin(value).expect("u32 always fits"))
     }
 }
 
 impl From<u64> for DataValue {
     fn from(value: u64) -> Self {
-        DataValue::Integer(integer::Integer::try_from_number(value, None).expect("u64 always fits"))
+        DataValue::Number(number::Number::try_from_builtin(value).expect("u64 always fits"))
     }
 }
 
@@ -781,63 +656,55 @@ impl TryFrom<u128> for DataValue {
     type Error = anyhow::Error;
 
     fn try_from(value: u128) -> Result<Self> {
-        Ok(DataValue::Integer(integer::Integer::try_from_number(
-            value, None,
-        )?))
+        Ok(DataValue::Number(number::Number::try_from_builtin(value)?))
     }
 }
 
 impl From<usize> for DataValue {
     fn from(value: usize) -> Self {
-        DataValue::Integer(
-            integer::Integer::try_from_number(value, None).expect("usize always fits"),
-        )
+        DataValue::Number(number::Number::try_from_builtin(value).expect("usize always fits"))
     }
 }
 
 impl From<i8> for DataValue {
     fn from(value: i8) -> Self {
-        DataValue::Integer(integer::Integer::try_from_number(value, None).expect("i8 always fits"))
+        DataValue::Number(number::Number::try_from_builtin(value).expect("i8 always fits"))
     }
 }
 
 impl From<i16> for DataValue {
     fn from(value: i16) -> Self {
-        DataValue::Integer(integer::Integer::try_from_number(value, None).expect("i16 always fits"))
+        DataValue::Number(number::Number::try_from_builtin(value).expect("i16 always fits"))
     }
 }
 
 impl From<i32> for DataValue {
     fn from(value: i32) -> Self {
-        DataValue::Integer(integer::Integer::try_from_number(value, None).expect("i32 always fits"))
+        DataValue::Number(number::Number::try_from_builtin(value).expect("i32 always fits"))
     }
 }
 
 impl From<i64> for DataValue {
     fn from(value: i64) -> Self {
-        DataValue::Integer(integer::Integer::try_from_number(value, None).expect("i64 always fits"))
+        DataValue::Number(number::Number::try_from_builtin(value).expect("i64 always fits"))
     }
 }
 
 impl From<i128> for DataValue {
     fn from(value: i128) -> Self {
-        DataValue::Integer(
-            integer::Integer::try_from_number(value, None).expect("i128 always fits"),
-        )
+        DataValue::Number(number::Number::try_from_builtin(value).expect("i128 always fits"))
     }
 }
 
 impl From<isize> for DataValue {
     fn from(value: isize) -> Self {
-        DataValue::Integer(
-            integer::Integer::try_from_number(value, None).expect("isize always fits"),
-        )
+        DataValue::Number(number::Number::try_from_builtin(value).expect("isize always fits"))
     }
 }
 
-impl From<float::Float> for DataValue {
-    fn from(value: float::Float) -> Self {
-        DataValue::Float(value)
+impl From<number::Number> for DataValue {
+    fn from(value: number::Number) -> Self {
+        DataValue::Number(value)
     }
 }
 
@@ -845,7 +712,7 @@ impl TryFrom<f32> for DataValue {
     type Error = anyhow::Error;
 
     fn try_from(value: f32) -> Result<Self> {
-        Ok(DataValue::Float(float::Float::try_from_number(value)?))
+        Ok(DataValue::Number(number::Number::try_from_builtin(value)?))
     }
 }
 
@@ -853,7 +720,7 @@ impl TryFrom<f64> for DataValue {
     type Error = anyhow::Error;
 
     fn try_from(value: f64) -> Result<Self> {
-        Ok(DataValue::Float(float::Float::try_from_number(value)?))
+        Ok(DataValue::Number(number::Number::try_from_builtin(value)?))
     }
 }
 
@@ -916,79 +783,79 @@ impl From<bytes::Bytes> for DataValue {
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42i8, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42i8)?)
+//             DataValue::Number(number::Number::try_from_builtin(42i8)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42i16, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42i16)?)
+//             DataValue::Number(number::Number::try_from_builtin(42i16)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42i32, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42i32)?)
+//             DataValue::Number(number::Number::try_from_builtin(42i32)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42i64, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42i64)?)
+//             DataValue::Number(number::Number::try_from_builtin(42i64)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42i128, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42i128)?)
+//             DataValue::Number(number::Number::try_from_builtin(42i128)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42isize, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42isize)?)
+//             DataValue::Number(number::Number::try_from_builtin(42isize)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42u8, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42u8)?)
+//             DataValue::Number(number::Number::try_from_builtin(42u8)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42u16, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42u16)?)
+//             DataValue::Number(number::Number::try_from_builtin(42u16)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42u32, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42u32)?)
+//             DataValue::Number(number::Number::try_from_builtin(42u32)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42u64, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42u64)?)
+//             DataValue::Number(number::Number::try_from_builtin(42u64)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42u128, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42u128)?)
+//             DataValue::Number(number::Number::try_from_builtin(42u128)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &42usize, &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_number(42usize)?)
+//             DataValue::Number(number::Number::try_from_builtin(42usize)?)
 //         );
 
 //         let value = DataValue::try_from_any(DataType::Integer(X8), &"42", &alloc)?;
 //         assert_eq!(
 //             value,
-//             DataValue::Integer(integer::Integer::try_from_str("42")?)
+//             DataValue::Number(number::Number::try_from_builtin("42")?)
 //         );
 
 //         Ok(())

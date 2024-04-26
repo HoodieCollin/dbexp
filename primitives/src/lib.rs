@@ -1,6 +1,5 @@
 #![feature(lazy_cell)]
 #![feature(allocator_api)]
-#![feature(btreemap_alloc)]
 
 use std::{
     alloc::{AllocError, Allocator, Layout},
@@ -13,14 +12,7 @@ use std::{
 use anyhow::Result;
 use parking_lot::RwLock;
 
-pub mod block;
-pub mod buffer;
-pub mod bump;
-pub mod graph;
-pub mod map;
-pub mod set;
 pub mod shared_object;
-pub mod string;
 pub mod typed_arc;
 
 /// ## !!! WARNING !!!
@@ -114,6 +106,34 @@ impl Recycler {
             Ok(result) => Ok(result),
             Err(err) => Err(err.into()),
         }
+    }
+
+    pub fn clear(&self) {
+        let mut guard = self.0.write();
+        guard.clear();
+    }
+
+    pub fn reserve<T>(&self, count: usize) -> Result<(), RecyclerError> {
+        let layout = Layout::new::<T>();
+
+        let stack = {
+            if let Some(found) = {
+                let guard = self.0.try_read().ok_or(RecyclerError::Unavailable)?;
+                guard.get(&layout).map(Arc::clone)
+            } {
+                found
+            } else {
+                let mut guard = self.0.try_write().ok_or(RecyclerError::Unavailable)?;
+                let new = Arc::new(RwLock::new(Vec::new()));
+                guard.insert(layout, Arc::clone(&new));
+                new
+            }
+        };
+
+        let mut stack_guard = stack.write();
+        stack_guard.reserve(count);
+
+        Ok(())
     }
 }
 
@@ -240,41 +260,41 @@ unsafe impl Allocator for Recycler {
     }
 }
 
-pub(crate) mod sealed {
-    use crate::Recycler;
+// pub(crate) mod sealed {
+//     use crate::Recycler;
 
-    pub trait GlobalRecycler {
-        fn recycler() -> Recycler;
-    }
-}
+//     pub trait GlobalRecycler {
+//         fn recycler() -> Recycler;
+//     }
+// }
 
-macro_rules! new_global_recycler {
-    (
-        $name:ident
-    ) => {
-        #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        pub struct $name;
+// macro_rules! new_global_recycler {
+//     (
+//         $name:ident
+//     ) => {
+//         #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+//         pub struct $name;
 
-        impl crate::sealed::GlobalRecycler for $name {
-            fn recycler() -> Recycler {
-                static mut GLOBAL_RECYCLER: LazyCell<Recycler> = LazyCell::new(Recycler::default);
-                unsafe { GLOBAL_RECYCLER.clone() }
-            }
-        }
+//         impl crate::sealed::GlobalRecycler for $name {
+//             fn recycler() -> Recycler {
+//                 static mut GLOBAL_RECYCLER: LazyCell<Recycler> = LazyCell::new(Recycler::default);
+//                 unsafe { GLOBAL_RECYCLER.clone() }
+//             }
+//         }
 
-        unsafe impl std::alloc::Allocator for $name {
-            fn allocate(
-                &self,
-                layout: std::alloc::Layout,
-            ) -> Result<std::ptr::NonNull<[u8]>, std::alloc::AllocError> {
-                Self::recycler().allocate(layout)
-            }
+//         unsafe impl std::alloc::Allocator for $name {
+//             fn allocate(
+//                 &self,
+//                 layout: std::alloc::Layout,
+//             ) -> Result<std::ptr::NonNull<[u8]>, std::alloc::AllocError> {
+//                 Self::recycler().allocate(layout)
+//             }
 
-            unsafe fn deallocate(&self, ptr: std::ptr::NonNull<u8>, layout: std::alloc::Layout) {
-                Self::recycler().deallocate(ptr, layout)
-            }
-        }
-    };
-}
+//             unsafe fn deallocate(&self, ptr: std::ptr::NonNull<u8>, layout: std::alloc::Layout) {
+//                 Self::recycler().deallocate(ptr, layout)
+//             }
+//         }
+//     };
+// }
 
-pub(crate) use new_global_recycler;
+// pub(crate) use new_global_recycler;

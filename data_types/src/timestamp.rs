@@ -6,7 +6,7 @@ use chrono::{
     DateTime, Utc,
 };
 
-use crate::number::Number;
+use crate::number;
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Timestamp(DateTime<Utc>);
@@ -33,7 +33,7 @@ impl Timestamp {
         self.0.timestamp_millis() as i128
     }
 
-    pub fn try_from_number<T: Number>(value: T) -> Result<Self> {
+    pub fn try_from_number<T: number::Builtin>(value: T) -> Result<Self> {
         if let Some(timestamp) = DateTime::from_timestamp_millis(value.as_i64()?) {
             Ok(Self(timestamp))
         } else {

@@ -1,7 +1,257 @@
-use std::mem::size_of;
-
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+
+const NAN: u8 = 1;
+const POS_INFINITY: u8 = 2;
+const NEG_INFINITY: u8 = 3;
+const FLOAT: u8 = 4;
+const INTEGER: u8 = 5;
+const UNSIGNED: u8 = 6;
+
+/// Invariant: NaN, Infinity, and -Infinity are not valid numbers. Float will never be NaN, Infinity, or -Infinity.
+#[derive(Debug, Clone, Copy)]
+pub enum Number {
+    NaN,
+    Infinity(bool),
+    Float(f64),
+    Integer(i64),
+    Unsigned(u64),
+}
+
+impl std::hash::Hash for Number {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Number::NaN => NAN.hash(state),
+            Number::Infinity(sign) => {
+                if *sign {
+                    POS_INFINITY.hash(state);
+                } else {
+                    NEG_INFINITY.hash(state);
+                }
+            }
+            Number::Float(f) => {
+                FLOAT.hash(state);
+                f.to_bits().hash(state);
+            }
+            Number::Integer(i) => {
+                INTEGER.hash(state);
+                i.hash(state);
+            }
+            Number::Unsigned(u) => {
+                UNSIGNED.hash(state);
+                u.hash(state);
+            }
+        }
+    }
+}
+
+impl Number {
+    pub const BYTE_COUNT: usize = 9;
+
+    pub fn try_from_str(s: &str) -> Result<Self> {
+        if let Ok(f) = s.parse::<f64>() {
+            Ok(Number::Float(f))
+        } else if let Ok(i) = s.parse::<i64>() {
+            Ok(Number::Integer(i))
+        } else if let Ok(u) = s.parse::<u64>() {
+            Ok(Number::Unsigned(u))
+        } else {
+            Err(anyhow::anyhow!("Invalid number: {}", s))
+        }
+    }
+
+    pub fn try_as_hcl_number(self) -> Option<hcl::Number> {
+        match self {
+            Number::NaN => None,
+            Number::Infinity(..) => None,
+            Number::Float(f) => hcl::Number::from_f64(f),
+            Number::Integer(i) => Some(hcl::Number::from(i)),
+            Number::Unsigned(u) => Some(hcl::Number::from(u)),
+        }
+    }
+
+    pub fn into_array(self) -> [u8; 9] {
+        let mut buf = [0; Self::BYTE_COUNT];
+
+        match self {
+            Number::NaN => buf[0] = NAN,
+            Number::Infinity(sign) => buf[0] = if sign { POS_INFINITY } else { NEG_INFINITY },
+            Number::Float(f) => {
+                buf[0] = FLOAT;
+                buf[1..].copy_from_slice(&f.to_bits().to_ne_bytes());
+            }
+            Number::Integer(i) => {
+                buf[0] = INTEGER;
+                buf[1..].copy_from_slice(&i.to_ne_bytes());
+            }
+            Number::Unsigned(u) => {
+                buf[0] = UNSIGNED;
+                buf[1..].copy_from_slice(&u.to_ne_bytes());
+            }
+        }
+
+        buf
+    }
+
+    pub fn try_from_slice(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != Self::BYTE_COUNT {
+            anyhow::bail!("Invalid number length");
+        }
+
+        Ok(match bytes[0] {
+            NAN => Number::NaN,
+            POS_INFINITY => Number::Infinity(true),
+            NEG_INFINITY => Number::Infinity(false),
+            FLOAT => {
+                let bits = u64::from_ne_bytes(bytes[1..].try_into()?);
+                Number::Float(f64::from_bits(bits))
+            }
+            INTEGER => {
+                let i = i64::from_ne_bytes(bytes[1..].try_into()?);
+                Number::Integer(i)
+            }
+            UNSIGNED => {
+                let u = u64::from_ne_bytes(bytes[1..].try_into()?);
+                Number::Unsigned(u)
+            }
+            _ => anyhow::bail!("Invalid number type"),
+        })
+    }
+
+    pub fn try_from_builtin<T: Builtin>(x: T) -> Result<Self> {
+        Ok(match T::KIND {
+            NumKind::I8 => Number::Integer(x.as_i64()?),
+            NumKind::I16 => Number::Integer(x.as_i64()?),
+            NumKind::I32 => Number::Integer(x.as_i64()?),
+            NumKind::I64 => Number::Integer(x.as_i64()?),
+            NumKind::I128 => Number::Integer(x.as_i64()?),
+            NumKind::ISize => Number::Integer(x.as_i64()?),
+            NumKind::U8 => Number::Unsigned(x.as_u64()?),
+            NumKind::U16 => Number::Unsigned(x.as_u64()?),
+            NumKind::U32 => Number::Unsigned(x.as_u64()?),
+            NumKind::U64 => Number::Unsigned(x.as_u64()?),
+            NumKind::U128 => Number::Unsigned(x.as_u64()?),
+            NumKind::USize => Number::Unsigned(x.as_u64()?),
+            NumKind::F32 => Number::Float(unsafe { x.assume_f32() as f64 }),
+            NumKind::F64 => Number::Float(unsafe { x.assume_f64() }),
+        })
+    }
+
+    pub fn is_zero(&self) -> bool {
+        match self {
+            Number::Float(f) => *f == 0.0,
+            Number::Integer(i) => *i == 0,
+            Number::Unsigned(u) => *u == 0,
+            _ => false,
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        match self {
+            Number::NaN => false,
+            Number::Infinity(..) => false,
+            _ => true,
+        }
+    }
+}
+
+impl std::fmt::Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Number::NaN => write!(f, "NaN"),
+            Number::Infinity(true) => write!(f, "Infinity"),
+            Number::Infinity(false) => write!(f, "-Infinity"),
+            Number::Float(x) => {
+                let mut buf = ryu::Buffer::new();
+                write!(f, "{}", buf.format(*x))
+            }
+            Number::Integer(i) => {
+                let mut buf = itoa::Buffer::new();
+                write!(f, "{}", buf.format(*i))
+            }
+            Number::Unsigned(u) => {
+                let mut buf = itoa::Buffer::new();
+                write!(f, "{}", buf.format(*u))
+            }
+        }
+    }
+}
+
+impl From<f64> for Number {
+    fn from(f: f64) -> Self {
+        if f.is_nan() {
+            Number::NaN
+        } else if f.is_infinite() {
+            Number::Infinity(f.is_sign_positive())
+        } else {
+            Number::Float(f)
+        }
+    }
+}
+
+impl From<i64> for Number {
+    fn from(i: i64) -> Self {
+        Number::Integer(i)
+    }
+}
+
+impl From<u64> for Number {
+    fn from(u: u64) -> Self {
+        Number::Unsigned(u)
+    }
+}
+
+impl From<Number> for f64 {
+    fn from(n: Number) -> Self {
+        match n {
+            Number::NaN => f64::NAN,
+            Number::Infinity(sign) => {
+                if sign {
+                    f64::INFINITY
+                } else {
+                    f64::NEG_INFINITY
+                }
+            }
+            Number::Float(f) => f,
+            Number::Integer(i) => i as f64,
+            Number::Unsigned(u) => u as f64,
+        }
+    }
+}
+
+impl PartialEq for Number {
+    fn eq(&self, other: &Self) -> bool {
+        let a = self.try_as_hcl_number();
+        let b = other.try_as_hcl_number();
+
+        if a.is_none() || b.is_none() {
+            return false;
+        }
+
+        a.unwrap() == b.unwrap()
+    }
+}
+
+impl Eq for Number {}
+
+impl PartialOrd for Number {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let a = self.try_as_hcl_number();
+        let b = other.try_as_hcl_number();
+
+        if a.is_none() || b.is_none() {
+            return None;
+        }
+
+        a.unwrap().partial_cmp(&b.unwrap())
+    }
+}
+
+impl Ord for Number {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum NumKind {
@@ -21,7 +271,7 @@ pub enum NumKind {
     F64,
 }
 
-pub trait Number: Copy + 'static {
+pub trait Builtin: Copy + 'static {
     const KIND: NumKind;
     unsafe fn assume_i8(self) -> i8 {
         panic!("Assuming i8 on non-i8 type")
@@ -64,6 +314,97 @@ pub trait Number: Copy + 'static {
     }
     unsafe fn assume_f64(self) -> f64 {
         panic!("Assuming f64 on non-f64 type")
+    }
+
+    fn as_u64(self) -> Result<u64> {
+        Ok(match Self::KIND {
+            NumKind::I8 => unsafe {
+                let val = self.assume_i8();
+                if val.is_negative() {
+                    anyhow::bail!("Value is negative");
+                }
+
+                val as u64
+            },
+            NumKind::I16 => unsafe {
+                let val = self.assume_i16();
+                if val.is_negative() {
+                    anyhow::bail!("Value is negative");
+                }
+
+                val as u64
+            },
+            NumKind::I32 => unsafe {
+                let val = self.assume_i32();
+                if val.is_negative() {
+                    anyhow::bail!("Value is negative");
+                }
+
+                val as u64
+            },
+            NumKind::I64 => unsafe {
+                let val = self.assume_i64();
+                if val.is_negative() {
+                    anyhow::bail!("Value is negative");
+                }
+
+                val as u64
+            },
+            NumKind::ISize => unsafe {
+                let val = self.assume_isize();
+
+                if val.is_negative() {
+                    anyhow::bail!("Value is negative");
+                }
+
+                val as u64
+            },
+            NumKind::I128 => unsafe {
+                let val = self.assume_i128();
+
+                if val.is_negative() {
+                    anyhow::bail!("Value is negative");
+                }
+
+                if val > u64::MAX as i128 {
+                    anyhow::bail!("Value is too large for u64");
+                }
+
+                val as u64
+            },
+            NumKind::U8 => unsafe { u64::from(self.assume_u8()) },
+            NumKind::U16 => unsafe { u64::from(self.assume_u16()) },
+            NumKind::U32 => unsafe { u64::from(self.assume_u32()) },
+            NumKind::U64 => unsafe { self.assume_u64() },
+            NumKind::USize => unsafe { self.assume_usize() as u64 },
+            NumKind::U128 => unsafe {
+                let val = self.assume_u128();
+
+                if val > u64::MAX as u128 {
+                    anyhow::bail!("Value is too large for u64");
+                }
+
+                val as u64
+            },
+            NumKind::F32 => unsafe {
+                let val = self.assume_f32();
+
+                if val.is_infinite() || val.is_nan() {
+                    anyhow::bail!("Value is not a finite number");
+                }
+
+                val as u64
+            },
+            NumKind::F64 => unsafe {
+                let val = self.assume_f64();
+
+                if val.is_infinite() || val.is_nan() {
+                    anyhow::bail!("Value is not a finite number");
+                }
+
+                val as u64
+            },
+        })
     }
 
     fn as_i64(self) -> Result<i64> {
@@ -176,150 +517,87 @@ pub trait Number: Copy + 'static {
         })
     }
 }
-impl Number for i8 {
+impl Builtin for i8 {
     const KIND: NumKind = NumKind::I8;
     unsafe fn assume_i8(self) -> i8 {
         self
     }
 }
-impl Number for i16 {
+impl Builtin for i16 {
     const KIND: NumKind = NumKind::I16;
     unsafe fn assume_i16(self) -> i16 {
         self
     }
 }
-impl Number for i32 {
+impl Builtin for i32 {
     const KIND: NumKind = NumKind::I32;
     unsafe fn assume_i32(self) -> i32 {
         self
     }
 }
-impl Number for i64 {
+impl Builtin for i64 {
     const KIND: NumKind = NumKind::I64;
     unsafe fn assume_i64(self) -> i64 {
         self
     }
 }
-impl Number for i128 {
+impl Builtin for i128 {
     const KIND: NumKind = NumKind::I128;
     unsafe fn assume_i128(self) -> i128 {
         self
     }
 }
-impl Number for isize {
+impl Builtin for isize {
     const KIND: NumKind = NumKind::ISize;
     unsafe fn assume_isize(self) -> isize {
         self
     }
 }
-impl Number for u8 {
+impl Builtin for u8 {
     const KIND: NumKind = NumKind::U8;
     unsafe fn assume_u8(self) -> u8 {
         self
     }
 }
-impl Number for u16 {
+impl Builtin for u16 {
     const KIND: NumKind = NumKind::U16;
     unsafe fn assume_u16(self) -> u16 {
         self
     }
 }
-impl Number for u32 {
+impl Builtin for u32 {
     const KIND: NumKind = NumKind::U32;
     unsafe fn assume_u32(self) -> u32 {
         self
     }
 }
-impl Number for u64 {
+impl Builtin for u64 {
     const KIND: NumKind = NumKind::U64;
     unsafe fn assume_u64(self) -> u64 {
         self
     }
 }
-impl Number for u128 {
+impl Builtin for u128 {
     const KIND: NumKind = NumKind::U128;
     unsafe fn assume_u128(self) -> u128 {
         self
     }
 }
-impl Number for usize {
+impl Builtin for usize {
     const KIND: NumKind = NumKind::USize;
     unsafe fn assume_usize(self) -> usize {
         self
     }
 }
-impl Number for f32 {
+impl Builtin for f32 {
     const KIND: NumKind = NumKind::F32;
     unsafe fn assume_f32(self) -> f32 {
         self
     }
 }
-impl Number for f64 {
+impl Builtin for f64 {
     const KIND: NumKind = NumKind::F64;
     unsafe fn assume_f64(self) -> f64 {
         self
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum IntSize {
-    X8,
-    X16,
-    X32,
-    X64,
-}
-
-impl IntSize {
-    pub fn ptr_size() -> Self {
-        match size_of::<usize>() {
-            4 => Self::X32,
-            8 => Self::X64,
-            _ => unreachable!(),
-        }
-    }
-
-    #[inline(always)]
-    pub fn byte_count(&self) -> usize {
-        match self {
-            Self::X8 => 1,
-            Self::X16 => 2,
-            Self::X32 => 4,
-            Self::X64 => 8,
-        }
-    }
-
-    #[inline(always)]
-    pub fn for_number<T: Number>() -> Self {
-        match size_of::<T>() {
-            1 => Self::X8,
-            2 => Self::X16,
-            4 => Self::X32,
-            // all u128 and i128 values are limited to i64::MAX
-            8 | 16 => Self::X64,
-            _ => unreachable!(),
-        }
-    }
-
-    #[inline(always)]
-    pub fn for_value(value: i128) -> Self {
-        if value >= i8::MIN as i128 && value <= i8::MAX as i128 {
-            Self::X8
-        } else if value >= i16::MIN as i128 && value <= i16::MAX as i128 {
-            Self::X16
-        } else if value >= i32::MIN as i128 && value <= i32::MAX as i128 {
-            Self::X32
-        } else {
-            Self::X64
-        }
-    }
-
-    #[inline(always)]
-    pub fn size_up(self) -> Result<Self> {
-        Ok(match self {
-            Self::X8 => Self::X16,
-            Self::X16 => Self::X32,
-            Self::X32 => Self::X64,
-            Self::X64 => anyhow::bail!("Integer size is already at maximum"),
-        })
     }
 }
