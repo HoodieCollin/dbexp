@@ -1,118 +1,163 @@
+use super::bytes::Bytes;
 use anyhow::Result;
-use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Text<'bump> {
-    inner: BumpString<'bump>,
-    max_capacity: u32,
-}
+#[repr(transparent)]
+pub struct Text(Bytes);
 
-impl<'bump> Text<'bump> {
-    pub fn new(bump: &'bump bumpalo::Bump, value: &str, max_capacity: u32) -> Result<Self> {
-        if value.len() > max_capacity as usize {
-            return Err(anyhow::anyhow!("Text buffer is full"));
-        }
-
-        let mut inner = BumpString::with_capacity_in(max_capacity, bump);
-        inner.push_str(value);
-
-        Ok(Self {
-            inner,
-            max_capacity,
-        })
+impl Text {
+    pub fn new(cap: usize) -> Self {
+        Self(Bytes::new(cap))
     }
 
-    pub fn from_bytes(bump: &'bump bumpalo::Bump, bytes: &[u8], max_capacity: u32) -> Result<Self> {
-        if bytes.len() > max_capacity as usize {
-            return Err(anyhow::anyhow!("Text buffer is full"));
+    pub fn try_from_str(value: &str, cap: usize) -> Result<Self> {
+        if value.len() > cap as usize {
+            anyhow::bail!("Text buffer is too small for string");
         }
 
-        let s = std::str::from_utf8(bytes)?;
-
-        let mut inner = BumpString::with_capacity_in(max_capacity, bump);
-        inner.push_str(s);
-
-        Ok(Self {
-            inner,
-            max_capacity,
-        })
+        Ok(Self(Bytes::try_from_slice(value.as_bytes(), cap)?))
     }
 
-    pub fn into_bytes(self) -> BumpVec<'bump, u8> {
-        self.inner.into_bytes()
+    pub fn try_from_slice(bytes: &[u8], cap: usize) -> Result<Self> {
+        if bytes.len() > cap as usize {
+            anyhow::bail!("Text buffer is too small for slice");
+        }
+
+        // SAFETY: bytes is guaranteed to be valid UTF-8
+        std::str::from_utf8(bytes)?;
+
+        Ok(Self(Bytes::try_from_slice(bytes, cap)?))
+    }
+
+    pub fn try_from_i128(value: i128, cap: usize) -> Result<Self> {
+        let mut num = itoa::Buffer::new();
+        let value = num.format(value);
+
+        if value.len() > cap as usize {
+            anyhow::bail!("Text buffer is too small for this i128");
+        }
+
+        let mut buf = Self::new(cap);
+        buf.try_push_str(value)?;
+        Ok(buf)
+    }
+
+    pub fn try_from_f64(value: f64, cap: usize) -> Result<Self> {
+        let mut num = ryu::Buffer::new();
+        let value = num.format(value);
+
+        if value.len() > cap as usize {
+            anyhow::bail!("Text buffer is too small for this f64");
+        }
+
+        let mut buf = Self::new(cap);
+        buf.try_push_str(value)?;
+        Ok(buf)
+    }
+
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[inline(always)]
+    pub fn capacity(&self) -> usize {
+        self.0.capacity()
+    }
+
+    #[inline(always)]
+    pub fn available(&self) -> usize {
+        self.0.available()
+    }
+
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[inline(always)]
+    pub fn is_full(&self) -> bool {
+        self.len() == self.capacity()
+    }
+
+    #[inline(always)]
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    pub fn try_push_str(&mut self, value: impl AsRef<str>) -> Result<()> {
+        self.0.try_push_bytes(value.as_ref().as_bytes())
+    }
+
+    pub fn into_bytes(self) -> Bytes {
+        self.0
     }
 
     pub fn as_str(&self) -> &str {
-        &self.inner
+        // SAFETY: Text is guaranteed to be valid UTF-8
+        unsafe { std::str::from_utf8_unchecked(self.0 .0.as_slice()) }
     }
 
-    pub fn len(&self) -> usize {
-        self.inner.len()
+    pub fn as_str_mut(&mut self) -> &mut str {
+        // SAFETY: Text is guaranteed to be valid UTF-8
+        unsafe { std::str::from_utf8_unchecked_mut(self.0 .0.as_mut_slice()) }
     }
 
-    pub fn capacity(&self) -> usize {
-        self.inner.capacity()
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0 .0.as_slice()
     }
 
-    fn available(&self) -> usize {
-        self.inner.capacity() - self.inner.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-
-    pub fn clear(&mut self) {
-        self.inner.clear();
-    }
-
-    pub fn push_str(&mut self, value: &str) -> Result<()> {
-        if value.len() > self.available() {
-            return Err(anyhow::anyhow!("Text buffer is full"));
-        }
-
-        self.inner.push_str(value);
-    }
-
-    pub fn push_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-        if bytes.len() > self.available() {
-            return Err(anyhow::anyhow!("Text buffer is full"));
-        }
-
-        self.inner.push_str(std::str::from_utf8(bytes)?);
-    }
-
-    pub fn range_mut(&mut self, range: std::ops::Range<usize>) -> Result<&mut str> {
-        if range.end > self.len() {
-            return Err(anyhow::anyhow!("Index out of bounds"));
-        }
-
-        Ok(&mut self.inner[range])
+    pub fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
     }
 }
 
-impl<'bump> std::ops::Deref for Text<'bump> {
-    type Target = BumpString<'bump>;
+impl std::ops::Deref for Text {
+    type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.as_str()
     }
 }
 
-impl<'bump> std::fmt::Debug for Text<'bump> {
+impl std::ops::DerefMut for Text {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_str_mut()
+    }
+}
+
+impl AsRef<str> for Text {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsMut<str> for Text {
+    fn as_mut(&mut self) -> &mut str {
+        self.as_str_mut()
+    }
+}
+
+impl std::fmt::Debug for Text {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.inner)
+        self.as_str().fmt(f)
     }
 }
 
-impl<'bump> std::fmt::Display for Text<'bump> {
+impl std::fmt::Display for Text {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
+        self.as_str().fmt(f)
     }
 }
 
-impl<'bump> serde::Serialize for Text<'bump> {
+impl serde::Serialize for Text {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.inner)
+        self.as_str().serialize(serializer)
+    }
+}
+
+impl std::fmt::Write for Text {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.try_push_str(s).map_err(|_| std::fmt::Error)
     }
 }

@@ -1,0 +1,11 @@
+[package]
+  edition = "2021"
+  name    = "primitives"
+  version = "0.1.0"
+
+[dependencies]
+  anyhow      = { workspace = true }
+  indexmap    = { workspace = true }
+  parking_lot = { workspace = true }
+  petgraph    = { workspace = true }
+  serde       = { workspace = true }

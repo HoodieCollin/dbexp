@@ -1,95 +1,122 @@
 use anyhow::Result;
-use bumpalo::collections::Vec as BumpVec;
+use serde::Serialize;
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Bytes<'bump> {
-    inner: BumpVec<'bump>,
-    max_capacity: u32,
-}
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct Bytes(pub(crate) Vec<u8>, pub(crate) usize);
 
-impl<'bump> Bytes<'bump> {
-    pub fn new(bump: &'bump bumpalo::Bump, value: &[u8], max_capacity: u32) -> Result<Self> {
-        if value.len() > max_capacity as usize {
-            return Err(anyhow::anyhow!("Bytes buffer is full"));
+impl Bytes {
+    pub fn new(cap: usize) -> Self {
+        Self(Vec::with_capacity(cap), cap)
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut_slice()
+    }
+
+    pub fn try_from_str(value: &str, cap: usize) -> Result<Self> {
+        if value.len() > cap {
+            anyhow::bail!("Bytes buffer is too small for string");
         }
 
-        let mut bytes = BumpVec::with_capacity_in(value.len(), bump);
-        bytes.extend_from_slice(value);
+        let mut buf = Self::new(cap);
+        buf.0.extend_from_slice(value.as_bytes());
+        Ok(buf)
+    }
 
-        Ok(Self {
-            inner: bytes,
-            max_capacity,
-        })
+    pub fn try_from_slice(bytes: &[u8], cap: usize) -> Result<Self> {
+        if bytes.len() > cap {
+            anyhow::bail!("Bytes buffer is too small for slice");
+        }
+
+        let mut buf = Self::new(cap);
+        buf.0.extend_from_slice(bytes);
+        Ok(buf)
+    }
+
+    pub fn try_from_i128(value: i128, cap: usize) -> Result<Self> {
+        if cap < 16 {
+            return Err(anyhow::anyhow!("Buffer is too small for i128"));
+        }
+
+        let mut buf = Self::new(cap);
+        buf.0.extend_from_slice(&value.to_ne_bytes());
+        Ok(buf)
+    }
+
+    pub fn try_from_f64(value: f64, cap: usize) -> Result<Self> {
+        if cap < 8 {
+            return Err(anyhow::anyhow!("Buffer is too small for f64"));
+        }
+
+        let mut buf = Self::new(cap);
+        buf.0.extend_from_slice(&value.to_ne_bytes());
+        Ok(buf)
     }
 
     #[inline(always)]
-    pub fn from_bytes(bump: &'bump bumpalo::Bump, bytes: &[u8], max_capacity: u32) -> Result<Self> {
-        Self::new(bump, bytes, max_capacity)
-    }
-
-    pub fn into_bytes(self) -> BumpVec<'bump, u8> {
-        self.inner
-    }
-
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
     pub fn capacity(&self) -> usize {
-        self.inner.capacity()
+        self.1
     }
 
-    fn available(&self) -> usize {
-        self.inner.capacity() - self.inner.len()
+    #[inline(always)]
+    pub fn available(&self) -> usize {
+        self.capacity() - self.len()
     }
 
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.len() == 0
     }
 
+    #[inline(always)]
+    pub fn is_full(&self) -> bool {
+        self.len() == self.capacity()
+    }
+
+    #[inline(always)]
     pub fn clear(&mut self) {
-        self.inner.clear();
+        self.0.clear();
     }
 
-    pub fn push_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-        if bytes.len() > self.available() {
-            return Err(anyhow::anyhow!("Bytes buffer is full"));
+    pub fn try_push_bytes(&mut self, bytes: impl AsRef<[u8]>) -> Result<()> {
+        if self.available() < bytes.as_ref().len() {
+            anyhow::bail!("Bytes buffer is full");
         }
 
-        self.inner.push_str(std::str::from_utf8(bytes)?);
+        Ok(self.0.extend_from_slice(bytes.as_ref()))
     }
 
-    pub fn range_mut(&mut self, range: std::ops::Range<usize>) -> Result<&mut str> {
-        if range.end > self.len() {
-            return Err(anyhow::anyhow!("Index out of bounds"));
-        }
-
-        Ok(&mut self.inner[range])
+    pub fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
     }
 }
 
-impl<'bump> std::ops::Deref for Bytes<'bump> {
-    type Target = BumpVec<'bump>;
+impl std::ops::Deref for Bytes {
+    type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        &self.0
     }
 }
 
-impl<'bump> std::fmt::Debug for Bytes<'bump> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.inner)
+impl std::ops::DerefMut for Bytes {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
-impl<'bump> std::fmt::Display for Bytes<'bump> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
+impl AsRef<[u8]> for Bytes {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_slice()
     }
 }
 
-impl<'bump> serde::Serialize for Bytes<'bump> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.inner)
+impl AsMut<[u8]> for Bytes {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut_slice()
     }
 }

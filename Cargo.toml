@@ -4,16 +4,84 @@
   version = "0.1.0"
 
 [workspace]
-  members = [
+  default-members = [
+    ".",
+    "data_types",
     "hcl_queries",
     "hcl_schemas",
     "index_btree",
     "index_hash",
-    "mem_columns",
-    "mem_graph",
+    "mem_table",
     "rest_api",
-    'data_types',
+  ]
+  members = [
+    "data_types",
+    "hcl_queries",
+    "hcl_schemas",
+    "index_btree",
+    "index_hash",
+    "mem_table",
+    "primitives",
+    "rest_api",
   ]
 
+  [workspace.dependencies]
+    anyhow = "1.0"
+
+    [workspace.dependencies.hashbrown]
+      features = ["nightly", "raw", "rayon", "serde"]
+      version  = "0.14"
+
+    [workspace.dependencies.hcl-rs]
+      features = ["perf"]
+      version  = "0.16"
+
+    [workspace.dependencies.petgraph]
+      features = ["serde-1"]
+      version  = "0.6"
+
+    [workspace.dependencies.indexmap]
+      features = ["rayon", "serde"]
+      version  = "2.2"
+
+    [workspace.dependencies.im]
+      features = ["rayon", "serde"]
+      version  = "15.1"
+
+    [workspace.dependencies.rayon]
+      version = "1.10"
+
+    [workspace.dependencies.serde]
+      features = ["derive"]
+      version  = "1.0"
+
+    [workspace.dependencies.memmap2]
+      version = "0.9"
+
+    [workspace.dependencies.rand]
+      version = "0.8"
+
+    [workspace.dependencies.chrono]
+      version = "0.4"
+
+    [workspace.dependencies.base62]
+      version = "2.0"
+
+    [workspace.dependencies.itoa]
+      version = "1.0"
+
+    [workspace.dependencies.ryu]
+      version = "1.0"
+
+    [workspace.dependencies.sharded-slab]
+      version = "0.1"
+
+    [workspace.dependencies.parking_lot]
+      version = "0.12"
+
 [dependencies]
-  clap = { version = "4.5.4", features = ["derive"] }
+  anyhow     = { workspace = true }
+  clap       = { version = "4.5.4", features = ["derive"] }
+  data_types = { path = "./data_types" }
+  mem_table  = { path = "./mem_table" }
+  primitives = { path = "./primitives" }

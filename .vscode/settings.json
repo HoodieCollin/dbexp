@@ -1,5 +1,22 @@
 {
-  "cSpell.words": ["bumpalo", "chrono", "numer", "uninit"],
+  "cSpell.words": [
+    "btreemap",
+    "bumpalo",
+    "chrono",
+    "dealloc",
+    "graphmap",
+    "hashbrown",
+    "Hasher",
+    "hashset",
+    "indexmap",
+    "itoa",
+    "numer",
+    "petgraph",
+    "repr",
+    "sharded",
+    "Strftime",
+    "uninit"
+  ],
   "[rust]": {
     "editor.indentSize": "tabSize",
     "editor.tabSize": 4
