@@ -1,13 +1,41 @@
+use anyhow::Result;
 use data_types::{
-    oid::{self, ObjectId},
+    oid::{self},
     ExpectedType,
 };
+use primitives::byte_encoding::{AccessBytes, ScalarFromBytes};
 use serde::{Deserialize, Serialize};
 
 #[derive(
     Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
+#[repr(transparent)]
 pub struct TableId(oid::O32);
+
+impl AccessBytes for TableId {
+    fn access_bytes<F>(&self, mut f: F) -> Result<()>
+    where
+        F: FnMut(&[u8]) -> Result<()>,
+    {
+        let bytes = self.into_array();
+        f(&bytes)
+    }
+
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+    where
+        F: FnMut(&mut [u8]) -> Result<R>,
+        R: 'static,
+    {
+        let mut bytes = self.into_array();
+        f(&mut bytes)
+    }
+}
+
+impl ScalarFromBytes for TableId {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        Self::try_from_array(bytes)
+    }
+}
 
 impl TableId {
     pub fn new() -> Self {
@@ -18,8 +46,132 @@ impl TableId {
         self.0.into_array()
     }
 
-    pub fn from_array(bytes: [u8; 4]) -> Self {
-        Self(oid::O32::from_array(bytes))
+    pub fn from_array(bytes: [u8; 4]) -> Option<Self> {
+        Some(Self(oid::O32::from_array(bytes)?))
+    }
+
+    pub fn try_from_array(bytes: impl TryInto<[u8; 4]>) -> Result<Self> {
+        Ok(Self(oid::O32::try_from_array(bytes)?))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct ThinRecordId(pub(self) oid::O32);
+
+impl AccessBytes for ThinRecordId {
+    fn access_bytes<F>(&self, mut f: F) -> Result<()>
+    where
+        F: FnMut(&[u8]) -> Result<()>,
+    {
+        let bytes = self.into_array();
+        f(&bytes)
+    }
+
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+    where
+        F: FnMut(&mut [u8]) -> Result<R>,
+        R: 'static,
+    {
+        let mut bytes = self.into_array();
+        f(&mut bytes)
+    }
+}
+
+impl ScalarFromBytes for ThinRecordId {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        Self::try_from_array(bytes)
+    }
+}
+
+impl ThinRecordId {
+    pub const SENTINEL: Option<Self> = None;
+
+    pub fn new() -> Self {
+        Self(oid::O32::new())
+    }
+
+    pub fn from_array(bytes: [u8; 4]) -> Option<Self> {
+        Some(Self(oid::O32::from_array(bytes)?))
+    }
+
+    pub fn try_from_array(bytes: impl TryInto<[u8; 4]>) -> Result<Self> {
+        Ok(Self(oid::O32::try_from_array(bytes)?))
+    }
+
+    pub fn into_array(self) -> [u8; 4] {
+        self.0.into_array()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct RecordId(ThinRecordId, TableId);
+
+impl AccessBytes for RecordId {
+    fn access_bytes<F>(&self, mut f: F) -> Result<()>
+    where
+        F: FnMut(&[u8]) -> Result<()>,
+    {
+        let bytes = self.into_array();
+        f(&bytes)
+    }
+
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+    where
+        F: FnMut(&mut [u8]) -> Result<R>,
+        R: 'static,
+    {
+        let mut bytes = self.into_array();
+        f(&mut bytes)
+    }
+}
+
+impl ScalarFromBytes for RecordId {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        Self::try_from_array(bytes)
+    }
+}
+
+impl RecordId {
+    pub fn new(table: TableId) -> Self {
+        Self(ThinRecordId::new(), table)
+    }
+
+    pub fn table(&self) -> TableId {
+        self.1
+    }
+
+    pub fn from_thin(thin: ThinRecordId, table: TableId) -> Self {
+        Self(thin, table)
+    }
+
+    pub fn from_array(bytes: [u8; 8]) -> Option<Self> {
+        let thin = ThinRecordId::from_array(bytes[..4].try_into().ok()?)?;
+        let table = TableId::from_array(bytes[4..].try_into().ok()?)?;
+
+        Some(Self(thin, table))
+    }
+
+    pub fn try_from_array(bytes: impl TryInto<[u8; 8]>) -> Result<Self> {
+        let bytes: [u8; 8] = bytes
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("invalid value"))?;
+
+        let thin = ThinRecordId::try_from_array(&bytes[..4])?;
+        let table = TableId::try_from_array(&bytes[4..])?;
+
+        Ok(Self(thin, table))
+    }
+
+    pub fn into_array(self) -> [u8; 8] {
+        let mut bytes = [0; 8];
+        bytes[..4].copy_from_slice(&self.0.into_array());
+        bytes[4..].copy_from_slice(&self.1.into_array());
+        bytes
+    }
+
+    pub fn into_thin(self) -> ThinRecordId {
+        self.0
     }
 }
 
@@ -37,81 +189,5 @@ impl ColumnId {
 
     pub fn kind(&self) -> ExpectedType {
         self.2
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[repr(transparent)]
-pub struct ThinRecordId(pub(self) oid::O32);
-
-impl ThinRecordId {
-    pub const SENTINEL: Self = Self(oid::O32::SENTINEL);
-
-    pub fn new() -> Self {
-        let mut id = oid::O32::new();
-
-        while id == oid::O32::SENTINEL {
-            id = oid::O32::new();
-        }
-
-        Self(id)
-    }
-
-    pub fn from_array(bytes: [u8; 4]) -> Self {
-        Self(oid::O32::from_array(bytes))
-    }
-
-    pub fn into_array(self) -> [u8; 4] {
-        self.0.into_array()
-    }
-
-    pub fn is_sentinel(&self) -> bool {
-        self.0 == oid::O32::SENTINEL
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct RecordId(ThinRecordId, TableId);
-
-impl RecordId {
-    pub fn new(table: TableId) -> Self {
-        Self(ThinRecordId::new(), table)
-    }
-
-    pub fn table(&self) -> TableId {
-        self.1
-    }
-
-    pub fn from_array(bytes: [u8; 4], table: TableId) -> Self {
-        Self(ThinRecordId::from_array(bytes), table)
-    }
-
-    pub fn into_array(self) -> [u8; 4] {
-        self.0.into_array()
-    }
-
-    pub fn into_raw(self) -> ThinRecordId {
-        self.0
-    }
-
-    pub fn from_raw(raw: ThinRecordId, table: TableId) -> Self {
-        Self(raw, table)
-    }
-}
-
-/// This identifier is __NOT__ stable across restarts or even when a cell is unloaded and reloaded.
-///
-/// There is a global pool of `Cell`s allocated in a slab. When a `Cell` is dropped, it is returned to
-/// the pool. When a new `Cell` is needed, it is allocated from the pool.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct CellId(oid::O64);
-
-impl CellId {
-    pub fn new(id: usize) -> Self {
-        Self(oid::O64::from_uint(id as u64))
-    }
-
-    pub fn as_usize(&self) -> usize {
-        self.0.as_usize()
     }
 }

@@ -1,7 +1,7 @@
 use anyhow::Result;
+use primitives::byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes};
 
 use crate::{
-    byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
     object_ids::TableId,
     store::{block::Block, config::StoreConfig},
 };

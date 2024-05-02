@@ -2,7 +2,7 @@ use std::{ffi::os_str, os::unix::ffi::OsStrExt, path::Path};
 
 use anyhow::Result;
 
-use crate::byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes};
+use primitives::byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes};
 
 #[derive(Clone, Copy)]
 pub struct InternalPath {

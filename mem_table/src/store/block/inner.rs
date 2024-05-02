@@ -7,9 +7,9 @@ use anyhow::Result;
 use data_types::oid;
 use memmap2::{MmapMut, MmapOptions};
 use parking_lot::RwLock;
+use primitives::byte_encoding::{FromBytes, IntoBytes};
 
 use crate::{
-    byte_encoding::{FromBytes, IntoBytes},
     object_ids::{TableId, ThinRecordId},
     store::{
         block::{BlockConfig, BlockMeta},
@@ -20,7 +20,7 @@ use crate::{
 pub struct BlockInner<T: 'static> {
     pub(in crate::store) meta: BlockMeta,
     pub(in crate::store) data: MmapMut,
-    pub(in crate::store) slots_by_index: Vec<RwLock<(oid::O64, NonNull<SlotData<T>>)>>,
+    pub(in crate::store) slots_by_index: Vec<RwLock<(Option<oid::O64>, NonNull<SlotData<T>>)>>,
     pub(in crate::store) index_by_record: HashMap<ThinRecordId, usize>,
 }
 
@@ -65,8 +65,8 @@ impl<T> BlockInner<T> {
             this.init_from_bytes(&meta_bytes)?;
             this
         };
-        let block_capacity = meta.config.block_capacity;
-        let content_len = meta.config.block_capacity * Self::SLOT_BYTE_COUNT;
+        let block_capacity = meta.block_capacity();
+        let content_len = meta.block_capacity() * Self::SLOT_BYTE_COUNT;
 
         let data = unsafe {
             MmapOptions::new()
@@ -103,7 +103,7 @@ impl<T> BlockInner<T> {
 
         let meta = BlockMeta::new(idx, table, config);
 
-        let block_capacity = meta.config.block_capacity;
+        let block_capacity = meta.block_capacity();
         let data = MmapMut::map_anon(block_capacity * Self::SLOT_BYTE_COUNT)?;
 
         let slots_by_index = iter::repeat_with(|| ())
@@ -134,7 +134,7 @@ impl<T> BlockInner<T> {
     }
 
     pub fn capacity(&self) -> usize {
-        self.meta.config.block_capacity
+        self.meta.block_capacity()
     }
 
     pub fn len_as_bytes(&self) -> usize {

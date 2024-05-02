@@ -8,12 +8,12 @@ use std::{
 
 use anyhow::Result;
 
-use primitives::shared_object::SharedObject;
-
-use crate::{
+use primitives::{
     byte_encoding::{FromBytes, IntoBytes},
-    object_ids::{RecordId, TableId},
+    shared_object::SharedObject,
 };
+
+use crate::object_ids::{RecordId, TableId};
 
 use self::{
     block::{Block, BlockConfig},
@@ -177,7 +177,7 @@ impl<T> Store<T> {
         } else {
             inner.blocks.insert(
                 idx,
-                block::Block::new_anon(idx, table, Some(BlockConfig::new(block_capacity)))?,
+                block::Block::new_anon(idx, table, Some(BlockConfig::new(block_capacity)?))?,
             );
         }
 

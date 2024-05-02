@@ -259,7 +259,7 @@ impl DataValue {
                     let mut arr = [0u8; 2];
                     arr.copy_from_slice(val);
 
-                    return Ok(DataValue::O16(oid::O16::from_array(arr)));
+                    return Ok(DataValue::O16(oid::O16::try_from_array(arr)?));
                 }
             }
             DataType::O32 => {
@@ -273,7 +273,7 @@ impl DataValue {
                     let mut arr = [0u8; 4];
                     arr.copy_from_slice(val);
 
-                    return Ok(DataValue::O32(oid::O32::from_array(arr)));
+                    return Ok(DataValue::O32(oid::O32::try_from_array(arr)?));
                 }
             }
             DataType::O64 => {
@@ -287,7 +287,7 @@ impl DataValue {
                     let mut arr = [0u8; 8];
                     arr.copy_from_slice(val);
 
-                    return Ok(DataValue::O64(oid::O64::from_array(arr)));
+                    return Ok(DataValue::O64(oid::O64::try_from_array(arr)?));
                 }
             }
             DataType::Bool => {

@@ -100,7 +100,7 @@ impl<T> Block<T> {
         let idx;
 
         let (record, data) = tuple;
-        let thin_record_id = record.into_raw();
+        let thin_record_id = record.into_thin();
 
         if inner.index_by_record.contains_key(&thin_record_id) {
             return Err(InsertError::AlreadyExists {
@@ -128,7 +128,7 @@ impl<T> Block<T> {
             let slot = &inner.slots_by_index[idx];
             let mut slot = slot.write();
 
-            slot.0 = gen;
+            slot.0 = Some(gen);
 
             let slot = slot.1.as_mut();
 
@@ -217,27 +217,6 @@ impl<T> Block<T> {
             Ok(InsertState::Done(handles))
         }
     }
-
-    pub fn foreach_slot<F>(&self, mut f: F)
-    where
-        F: FnMut(SlotHandle<T>),
-    {
-        let inner = self.0.upgradable();
-
-        inner
-            .slots_by_index
-            .iter()
-            .enumerate()
-            .for_each(|(idx, slot)| {
-                let slot = slot.read();
-
-                f(SlotHandle {
-                    block: self.clone(),
-                    gen: slot.0,
-                    idx,
-                });
-            });
-    }
 }
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Block<T> {
@@ -274,7 +253,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Block<T> {
 #[allow(dead_code)]
 #[cfg(test)]
 mod tests {
-    use crate::byte_encoding::{FromBytes, IntoBytes};
+    use primitives::byte_encoding::{FromBytes, IntoBytes};
 
     use super::*;
 
@@ -286,7 +265,7 @@ mod tests {
 
         assert_eq!(config, config2);
 
-        config2.block_capacity = 42;
+        config2.set_block_capacity(42)?;
         let bytes = config2.into_bytes()?;
         let config3 = BlockConfig::from_bytes(&bytes)?;
 
@@ -356,10 +335,6 @@ mod tests {
         let _ = h2.remove_self()?;
 
         println!("{:#?}", block);
-
-        // block.foreach_slot(|slot| {
-        //     println!("{:#?}", slot);
-        // });
 
         Ok(())
     }

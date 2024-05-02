@@ -1,16 +1,18 @@
+use std::num::NonZeroUsize;
+
 use anyhow::Result;
 
-use crate::byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes};
+use primitives::byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockConfig {
-    pub block_capacity: usize,
+    block_capacity: NonZeroUsize,
 }
 
 impl Default for BlockConfig {
     fn default() -> Self {
         Self {
-            block_capacity: 128,
+            block_capacity: unsafe { NonZeroUsize::new_unchecked(128) },
         }
     }
 }
@@ -30,7 +32,21 @@ impl FromBytes for BlockConfig {
 }
 
 impl BlockConfig {
-    pub fn new(block_capacity: usize) -> Self {
-        Self { block_capacity }
+    pub fn new(block_capacity: usize) -> Result<Self> {
+        let block_capacity = NonZeroUsize::new(block_capacity)
+            .ok_or_else(|| anyhow::anyhow!("Block capacity must be greater than zero"))?;
+
+        Ok(Self { block_capacity })
+    }
+
+    pub fn block_capacity(&self) -> usize {
+        self.block_capacity.get()
+    }
+
+    pub fn set_block_capacity(&mut self, block_capacity: usize) -> Result<()> {
+        self.block_capacity = NonZeroUsize::new(block_capacity)
+            .ok_or_else(|| anyhow::anyhow!("Block capacity must be greater than zero"))?;
+
+        Ok(())
     }
 }

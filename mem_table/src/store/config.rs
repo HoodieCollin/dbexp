@@ -1,11 +1,9 @@
 use std::path::Path;
 
 use anyhow::Result;
+use primitives::byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes};
 
-use crate::{
-    byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
-    internal_path::InternalPath,
-};
+use crate::internal_path::InternalPath;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StoreConfig {

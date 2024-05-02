@@ -14,15 +14,15 @@ pub(super) const GAP_HEAD: usize = usize::MAX;
 pub type SlotTuple<T> = (RecordId, T);
 
 #[repr(C)]
-pub struct SlotData<T>(ThinRecordId, MaybeUninit<T>);
+pub struct SlotData<T>(Option<ThinRecordId>, MaybeUninit<T>);
 
 impl<T> SlotData<T> {
     pub fn new(record: RecordId, data: T) -> Self {
-        Self(record.into_raw(), MaybeUninit::new(data))
+        Self(Some(record.into_thin()), MaybeUninit::new(data))
     }
 
     pub fn is_gap(&self) -> bool {
-        self.0.is_sentinel()
+        self.0.is_none()
     }
 
     /// Returns the previous gap idx in the chain.
@@ -49,7 +49,7 @@ impl<T> SlotData<T> {
 
     pub unsafe fn raw_record_id_unchecked(&self) -> ThinRecordId {
         debug_assert!(!self.is_gap());
-        self.0
+        self.0.unwrap_unchecked()
     }
 
     pub fn data(&self) -> Option<&T> {
@@ -94,7 +94,7 @@ impl<T> SlotData<T> {
             }
         }
 
-        self.0 = record;
+        self.0 = Some(record);
         self.1 = MaybeUninit::new(data);
     }
 
@@ -143,12 +143,12 @@ impl<T> SlotHandle<T> {
         let outer = self.block.0.read_recursive();
         let inner = outer.slots_by_index[self.idx].read();
 
-        if inner.0 == oid::O64::SENTINEL {
+        if let Some(gen) = inner.0 {
+            if gen != self.gen {
+                anyhow::bail!("slot has been invalidated");
+            }
+        } else {
             anyhow::bail!("slot is not initialized");
-        }
-
-        if inner.0 != self.gen {
-            anyhow::bail!("slot has been invalidated");
         }
 
         let guard = RwLockReadGuard::map(inner, |(_, ptr)| unsafe { ptr.as_ref() });
@@ -163,12 +163,12 @@ impl<T> SlotHandle<T> {
         let outer = self.block.0.read_recursive();
         let inner = outer.slots_by_index[self.idx].write();
 
-        if inner.0 == oid::O64::SENTINEL {
+        if let Some(gen) = inner.0 {
+            if gen != self.gen {
+                anyhow::bail!("slot has been invalidated");
+            }
+        } else {
             anyhow::bail!("slot is not initialized");
-        }
-
-        if inner.0 != self.gen {
-            anyhow::bail!("slot has been invalidated");
         }
 
         let guard = RwLockWriteGuard::map(inner, |(_, ptr)| unsafe { ptr.as_mut() });
@@ -186,12 +186,12 @@ impl<T> SlotHandle<T> {
             let (record, data) = {
                 let mut inner = outer.slots_by_index[self.idx].write();
 
-                if inner.0 == oid::O64::SENTINEL {
+                if let Some(gen) = inner.0 {
+                    if gen != self.gen {
+                        anyhow::bail!("slot has been invalidated");
+                    }
+                } else {
                     anyhow::bail!("slot is not initialized");
-                }
-
-                if inner.0 != self.gen {
-                    anyhow::bail!("slot has been invalidated");
                 }
 
                 let slot = inner.1.as_mut();
@@ -211,7 +211,7 @@ impl<T> SlotHandle<T> {
             outer.meta.gap_tail = self.idx;
             outer.meta.gap_count += 1;
 
-            Ok((RecordId::from_raw(record, outer.meta.table), data))
+            Ok((RecordId::from_thin(record, outer.meta.table), data))
         }
     }
 }

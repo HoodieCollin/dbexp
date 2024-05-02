@@ -1,7 +1,7 @@
 use anyhow::Result;
+use primitives::byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes};
 
 use crate::{
-    byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
     object_ids::TableId,
     store::{block::config::BlockConfig, slot::GAP_HEAD},
 };
@@ -89,7 +89,11 @@ impl BlockMeta {
     }
 
     pub fn is_full(&self) -> bool {
-        self.len() == self.config.block_capacity
+        self.len() == self.config.block_capacity()
+    }
+
+    pub fn block_capacity(&self) -> usize {
+        self.config.block_capacity()
     }
 
     pub(in crate::store) fn take_next_block_idx(&mut self) -> Option<usize> {
