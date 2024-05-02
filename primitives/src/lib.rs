@@ -1,5 +1,7 @@
+#![allow(incomplete_features)]
 #![feature(lazy_cell)]
 #![feature(allocator_api)]
+#![feature(generic_const_exprs)]
 
 use std::{
     alloc::{AllocError, Allocator, Layout},
@@ -12,6 +14,7 @@ use std::{
 use anyhow::Result;
 use parking_lot::RwLock;
 
+pub mod byte_encoding;
 pub mod shared_object;
 
 /// ## !!! WARNING !!!
