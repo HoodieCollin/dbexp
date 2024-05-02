@@ -1,21 +1,21 @@
+use std::sync::{Arc, Weak};
+
 use anyhow::Result;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 
-use crate::typed_arc::{TypedArc, TypedWeak};
-
 #[derive(Default)]
 #[repr(transparent)]
-pub struct SharedObject<T: 'static>(TypedArc<RwLock<T>>);
+pub struct SharedObject<T: 'static>(Arc<RwLock<T>>);
 
-pub type WeakObjectRef<T> = TypedWeak<RwLock<T>>;
+pub type WeakObjectRef<T> = Weak<RwLock<T>>;
 
 unsafe impl<T: Send> Send for SharedObject<T> {}
 unsafe impl<T: Send + Sync> Sync for SharedObject<T> {}
 
 impl<T> SharedObject<T> {
     pub fn new(value: T) -> Self {
-        Self(TypedArc::new(RwLock::new(value)))
+        Self(Arc::new(RwLock::new(value)))
     }
 
     pub fn new_copy(&self) -> Self
@@ -26,21 +26,21 @@ impl<T> SharedObject<T> {
     }
 
     pub fn weak_ref(&self) -> WeakObjectRef<T> {
-        TypedArc::downgrade(&self.0)
+        Arc::downgrade(&self.0)
     }
 
     pub fn unwrap_or_clone(self) -> T
     where
         T: Clone,
     {
-        match TypedArc::try_unwrap(self.0) {
+        match Arc::try_unwrap(self.0) {
             Ok(inner) => inner.into_inner(),
             Err(arc) => Self(arc).read_with(|inner| inner.clone()),
         }
     }
 
     pub fn try_unwrap(this: Self) -> Result<T, Self> {
-        match TypedArc::try_unwrap(this.0) {
+        match Arc::try_unwrap(this.0) {
             Ok(inner) => Ok(inner.into_inner()),
             Err(arc) => Err(Self(arc)),
         }
