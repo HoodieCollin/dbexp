@@ -1,5 +1,8 @@
 use anyhow::Result;
-use primitives::byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes};
+use primitives::{
+    byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
+    impl_access_bytes_for_into_bytes_type,
+};
 
 use crate::{
     object_ids::TableId,
@@ -40,6 +43,8 @@ impl std::fmt::Debug for BlockMeta {
         d.field("config", &self.config).finish()
     }
 }
+
+impl_access_bytes_for_into_bytes_type!(BlockMeta);
 
 impl IntoBytes for BlockMeta {
     fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()> {

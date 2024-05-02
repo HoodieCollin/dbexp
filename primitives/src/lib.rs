@@ -1,4 +1,4 @@
-#![allow(incomplete_features)]
+// #![allow(incomplete_features)]
 #![feature(lazy_cell)]
 #![feature(allocator_api)]
 #![feature(generic_const_exprs)]

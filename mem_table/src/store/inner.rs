@@ -41,7 +41,7 @@ impl<T> StoreInner<T> {
         Ok(Self {
             meta: StoreMeta::new(table, Some(config)),
             file: None,
-            blocks: HashMap::with_capacity(config.initial_block_count),
+            blocks: HashMap::with_capacity(config.initial_block_count.get()),
         })
     }
 
@@ -95,7 +95,7 @@ impl<T> StoreInner<T> {
         Ok(Self {
             meta,
             file: Some(Arc::new(file)),
-            blocks: HashMap::with_capacity(meta.block_count),
+            blocks: HashMap::with_capacity(meta.block_count.get()),
         })
     }
 }

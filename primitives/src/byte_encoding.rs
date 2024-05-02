@@ -10,7 +10,7 @@ pub trait AccessBytes {
     where
         F: FnMut(&[u8]) -> Result<()>;
 
-    fn access_bytes_mut<F, R>(&mut self, f: F) -> Result<R>
+    fn access_bytes_mut<F, R>(&mut self, f: F) -> Result<Option<R>>
     where
         Self: Sized,
         F: FnMut(&mut [u8]) -> Result<R>,
@@ -25,12 +25,37 @@ impl AccessBytes for [u8] {
         f(self)
     }
 
-    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
     where
         F: FnMut(&mut [u8]) -> Result<R>,
         R: 'static,
     {
-        f(self)
+        Ok(Some(f(self)?))
+    }
+}
+
+impl AccessBytes for Option<&mut [u8]> {
+    fn access_bytes<F>(&self, mut f: F) -> Result<()>
+    where
+        F: FnMut(&[u8]) -> Result<()>,
+    {
+        if let Some(bytes) = self {
+            f(bytes)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
+    where
+        F: FnMut(&mut [u8]) -> Result<R>,
+        R: 'static,
+    {
+        if let Some(bytes) = self {
+            Ok(Some(f(bytes)?))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -42,12 +67,37 @@ impl AccessBytes for Vec<u8> {
         f(self)
     }
 
-    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
     where
         F: FnMut(&mut [u8]) -> Result<R>,
         R: 'static,
     {
-        f(self)
+        Ok(Some(f(self)?))
+    }
+}
+
+impl AccessBytes for Option<Vec<u8>> {
+    fn access_bytes<F>(&self, mut f: F) -> Result<()>
+    where
+        F: FnMut(&[u8]) -> Result<()>,
+    {
+        if let Some(bytes) = self {
+            f(bytes)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
+    where
+        F: FnMut(&mut [u8]) -> Result<R>,
+        R: 'static,
+    {
+        if let Some(bytes) = self {
+            Ok(Some(f(bytes)?))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -62,14 +112,39 @@ macro_rules! impl_access_bytes_for_integers {
                     f(&self.to_ne_bytes())
                 }
 
-                fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+                fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
                 where
                     F: FnMut(&mut [u8]) -> Result<R>,
                     R: 'static,
                 {
                     let mut bytes = self.to_ne_bytes();
-                    f(&mut bytes[..])
+                    Ok(Some(f(&mut bytes)?))
+                }
+            }
 
+            impl AccessBytes for Option<$n> {
+                fn access_bytes<F>(&self, mut f: F) -> Result<()>
+                where
+                    F: FnMut(&[u8]) -> Result<()>,
+                {
+                    if let Some(val) = self {
+                        f(&val.to_ne_bytes())
+                    } else {
+                        Ok(())
+                    }
+                }
+
+                fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
+                where
+                    F: FnMut(&mut [u8]) -> Result<R>,
+                    R: 'static,
+                {
+                    if let Some(val) = self {
+                        let mut bytes = val.to_ne_bytes();
+                        Ok(Some(f(&mut bytes)?))
+                    } else {
+                        Ok(None)
+                    }
                 }
             }
         )+
@@ -92,14 +167,39 @@ macro_rules! impl_access_bytes_for_non_zero_integers {
                     f(&self.get().to_ne_bytes())
                 }
 
-                fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+                fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
                 where
                     F: FnMut(&mut [u8]) -> Result<R>,
                     R: 'static,
                 {
                     let mut bytes = self.get().to_ne_bytes();
-                    f(&mut bytes[..])
+                    Ok(Some(f(&mut bytes[..])?))
+                }
+            }
 
+            impl AccessBytes for Option<$n> {
+                fn access_bytes<F>(&self, mut f: F) -> Result<()>
+                where
+                    F: FnMut(&[u8]) -> Result<()>,
+                {
+                    if let Some(val) = self {
+                        f(&val.get().to_ne_bytes())
+                    } else {
+                        Ok(())
+                    }
+                }
+
+                fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
+                where
+                    F: FnMut(&mut [u8]) -> Result<R>,
+                    R: 'static,
+                {
+                    if let Some(val) = self {
+                        let mut bytes = val.get().to_ne_bytes();
+                        Ok(Some(f(&mut bytes)?))
+                    } else {
+                        Ok(None)
+                    }
                 }
             }
         )+
@@ -120,13 +220,13 @@ impl AccessBytes for bool {
         f(&[*self as u8])
     }
 
-    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
     where
         F: FnMut(&mut [u8]) -> Result<R>,
         R: 'static,
     {
         let mut bytes = [*self as u8];
-        f(&mut bytes[..])
+        Ok(Some(f(&mut bytes[..])?))
     }
 }
 
@@ -138,13 +238,13 @@ impl AccessBytes for f32 {
         f(&self.to_bits().to_ne_bytes())
     }
 
-    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
     where
         F: FnMut(&mut [u8]) -> Result<R>,
         R: 'static,
     {
         let mut bytes = self.to_bits().to_ne_bytes();
-        f(&mut bytes[..])
+        Ok(Some(f(&mut bytes[..])?))
     }
 }
 
@@ -156,20 +256,20 @@ impl AccessBytes for f64 {
         f(&self.to_bits().to_ne_bytes())
     }
 
-    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
     where
         F: FnMut(&mut [u8]) -> Result<R>,
         R: 'static,
     {
         let mut bytes = self.to_bits().to_ne_bytes();
-        f(&mut bytes[..])
+        Ok(Some(f(&mut bytes[..])?))
     }
 }
 
 pub trait IntoBytes: Sized {
     const BYTE_COUNT: usize = size_of::<Self>();
 
-    fn encode_bytes(&self, encoder: &mut ByteEncoder<'_>) -> Result<()>;
+    fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()>;
 
     fn into_bytes(&self) -> Result<[u8; Self::BYTE_COUNT]> {
         let mut bytes = [0u8; Self::BYTE_COUNT];
@@ -206,7 +306,7 @@ impl ByteEncoder<'_> {
 }
 
 pub trait FromBytes: IntoBytes {
-    fn decode_bytes(this: &mut Self, decoder: &mut ByteDecoder<'_>) -> Result<()>;
+    fn decode_bytes(this: &mut Self, x: &mut ByteDecoder<'_>) -> Result<()>;
 
     fn from_bytes(bytes: &[u8]) -> Result<Self>
     where
@@ -283,6 +383,18 @@ macro_rules! impl_scalar_from_bytes_for_non_zero_integers {
                     }
                 }
             }
+
+            impl ScalarFromBytes for Option<$n> {
+                fn from_bytes(bytes: &[u8]) -> Result<Self> {
+                    let base = <$base>::from_ne_bytes(bytes.try_into()?);
+
+                    if base == 0 {
+                        Ok(None)
+                    } else {
+                        Ok(Some(unsafe { <$n>::new_unchecked(base) }))
+                    }
+                }
+            }
         )+
     };
 }
@@ -312,10 +424,12 @@ impl<'a> ByteDecoder<'a> {
         &mut self,
         dst: &mut T,
     ) -> Result<()> {
-        *dst = dst.access_bytes_mut(|bytes| {
+        if let Some(val) = dst.access_bytes_mut(|bytes| {
             self.cursor.read_exact(bytes)?;
             Ok(T::from_bytes(bytes)?)
-        })?;
+        })? {
+            *dst = val;
+        }
 
         Ok(())
     }
@@ -326,4 +440,28 @@ impl<'a> ByteDecoder<'a> {
         <T as FromBytes>::init_from_bytes(dst, &buf)?;
         Ok(())
     }
+}
+
+#[macro_export]
+macro_rules! impl_access_bytes_for_into_bytes_type {
+    ($ty:ty) => {
+        impl $crate::byte_encoding::AccessBytes for $ty {
+            fn access_bytes<F>(&self, mut f: F) -> anyhow::Result<()>
+            where
+                F: FnMut(&[u8]) -> Result<()>,
+            {
+                let bytes = self.into_bytes()?;
+                f(&bytes)
+            }
+
+            fn access_bytes_mut<F, R>(&mut self, mut f: F) -> anyhow::Result<Option<R>>
+            where
+                F: FnMut(&mut [u8]) -> Result<R>,
+                R: 'static,
+            {
+                let mut bytes = self.into_bytes()?;
+                Ok(Some(f(&mut bytes)?))
+            }
+        }
+    };
 }

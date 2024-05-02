@@ -1,4 +1,4 @@
-use std::ops::RangeBounds;
+use std::{num::NonZeroUsize, ops::RangeBounds};
 
 use anyhow::Result;
 
@@ -14,48 +14,26 @@ use self::{
 
 pub use self::{
     config::StoreConfig,
-    insert::{InsertError, InsertState},
     meta::StoreMeta,
+    record_store::{RecordInsertState, RecordStore, RecordStoreError},
+    result::{BlockCreationError, InsertError, InsertState, StoreError},
 };
 
 pub mod block;
-pub mod column_store;
 pub mod config;
 pub mod inner;
-pub mod insert;
 pub mod meta;
 pub mod record_store;
+pub mod result;
 pub mod slot;
 
-#[derive(Debug, thiserror::Error)]
-pub struct BlockCreationError {
-    #[source]
-    pub error: anyhow::Error,
-}
-
-impl std::fmt::Display for BlockCreationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.error)
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum StoreError<T> {
-    #[error(transparent)]
-    BlockCreationError(#[from] BlockCreationError),
-    #[error(transparent)]
-    InsertError(#[from] InsertError<T>),
-    #[error("block was not found??? (this should never happen)")]
-    BlockNotFound,
-}
-
-impl<T> StoreError<T> {
-    pub fn thread_safe(self) -> anyhow::Error {
-        anyhow::Error::msg(self.to_string())
-    }
-}
-
 pub struct Store<T: 'static>(SharedObject<StoreInner<T>>);
+
+impl<T> Clone for Store<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 impl<T> Store<T> {
     pub fn new(table: Option<TableId>, config: Option<StoreConfig>) -> Result<Self> {
@@ -71,7 +49,7 @@ impl<T> Store<T> {
 
     fn _create_block(inner: &mut StoreInner<T>, idx: usize) -> Result<()> {
         let table = inner.meta.table;
-        let block_capacity = inner.meta.config.block_capacity;
+        let block_capacity = inner.meta.config.block_capacity.get();
 
         if let Some(file) = inner.file.as_ref().cloned() {
             let block_capacity_as_bytes = block_capacity * Block::<T>::SLOT_BYTE_COUNT;
@@ -88,7 +66,10 @@ impl<T> Store<T> {
         }
 
         let new_block_count = inner.blocks.len();
-        inner.meta.block_count = new_block_count;
+
+        inner.meta.block_count = NonZeroUsize::new(new_block_count).ok_or_else(|| {
+            anyhow::anyhow!("block count should never be zero after creating a block")
+        })?;
 
         Ok(())
     }
@@ -97,7 +78,7 @@ impl<T> Store<T> {
         let inner = self.0.upgradable();
 
         // short-circuit if all blocks are already loaded
-        if inner.blocks.len() == inner.meta.block_count {
+        if inner.blocks.len() == inner.meta.block_count.get() {
             return Ok(());
         }
 
@@ -163,7 +144,7 @@ impl<T> Store<T> {
             } else {
                 drop(block_inner);
 
-                let idx = inner.meta.block_count;
+                let idx = inner.meta.block_count.get();
 
                 Self::_create_block(&mut inner, idx)
                     .map_err(|e| StoreError::BlockCreationError(BlockCreationError { error: e }))?;
@@ -234,7 +215,7 @@ impl<T> Store<T> {
                         } else {
                             drop(block_inner);
 
-                            let idx = inner.meta.block_count;
+                            let idx = inner.meta.block_count.get();
 
                             Self::_create_block(&mut inner, idx).map_err(|e| {
                                 StoreError::BlockCreationError(BlockCreationError { error: e })
@@ -295,7 +276,7 @@ mod test {
 
         assert_eq!(config, config2);
 
-        config2.block_capacity = 42;
+        config2.block_capacity = NonZeroUsize::new(42).unwrap();
         let bytes = config2.into_bytes()?;
         let config3 = StoreConfig::from_bytes(&bytes)?;
 
@@ -333,7 +314,7 @@ mod test {
         let store = Store::<Item>::new(
             Some(table),
             Some(StoreConfig {
-                block_capacity: 10,
+                block_capacity: NonZeroUsize::new(5).unwrap(),
                 ..Default::default()
             }),
         )?;

@@ -2,7 +2,10 @@ use std::num::NonZeroUsize;
 
 use anyhow::Result;
 
-use primitives::byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes};
+use primitives::{
+    byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
+    impl_access_bytes_for_into_bytes_type,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockConfig {
@@ -16,6 +19,8 @@ impl Default for BlockConfig {
         }
     }
 }
+
+impl_access_bytes_for_into_bytes_type!(BlockConfig);
 
 impl IntoBytes for BlockConfig {
     fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()> {

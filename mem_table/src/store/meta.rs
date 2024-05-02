@@ -1,5 +1,10 @@
+use std::num::NonZeroUsize;
+
 use anyhow::Result;
-use primitives::byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes};
+use primitives::{
+    byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
+    impl_access_bytes_for_into_bytes_type,
+};
 
 use crate::{
     object_ids::TableId,
@@ -9,7 +14,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StoreMeta {
     pub table: TableId,
-    pub block_count: usize,
+    pub block_count: NonZeroUsize,
     pub item_count: usize,
     pub gap_count: usize,
     pub cur_block: usize,
@@ -30,6 +35,8 @@ impl Default for StoreMeta {
         }
     }
 }
+
+impl_access_bytes_for_into_bytes_type!(StoreMeta);
 
 impl IntoBytes for StoreMeta {
     fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()> {
@@ -75,6 +82,6 @@ impl StoreMeta {
     }
 
     pub fn capacity_as_bytes<T: 'static>(&self) -> usize {
-        self.block_count * self.config.block_capacity * Block::<T>::SLOT_BYTE_COUNT
+        self.block_count.get() * self.config.block_capacity.get() * Block::<T>::SLOT_BYTE_COUNT
     }
 }

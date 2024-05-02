@@ -16,6 +16,27 @@ pub type SlotTuple<T> = (RecordId, T);
 #[repr(C)]
 pub struct SlotData<T>(Option<ThinRecordId>, MaybeUninit<T>);
 
+impl<T: Clone> Clone for SlotData<T> {
+    fn clone(&self) -> Self {
+        if self.is_gap() {
+            Self(None, MaybeUninit::uninit())
+        } else {
+            Self(
+                self.0.clone(),
+                MaybeUninit::new(unsafe { self.data_unchecked().clone() }),
+            )
+        }
+    }
+}
+
+impl<T: Copy> Copy for SlotData<T> {}
+
+impl<T> Default for SlotData<T> {
+    fn default() -> Self {
+        Self(None, MaybeUninit::uninit())
+    }
+}
+
 impl<T> SlotData<T> {
     pub fn new(record: RecordId, data: T) -> Self {
         Self(Some(record.into_thin()), MaybeUninit::new(data))
@@ -39,15 +60,15 @@ impl<T> SlotData<T> {
         std::ptr::read_unaligned(self.1.as_ptr() as *const _)
     }
 
-    pub fn raw_record_id(&self) -> Option<ThinRecordId> {
+    pub fn thin_record_id(&self) -> Option<ThinRecordId> {
         if self.is_gap() {
             None
         } else {
-            Some(unsafe { self.raw_record_id_unchecked() })
+            Some(unsafe { self.thin_record_id_unchecked() })
         }
     }
 
-    pub unsafe fn raw_record_id_unchecked(&self) -> ThinRecordId {
+    pub unsafe fn thin_record_id_unchecked(&self) -> ThinRecordId {
         debug_assert!(!self.is_gap());
         self.0.unwrap_unchecked()
     }
@@ -196,7 +217,7 @@ impl<T> SlotHandle<T> {
 
                 let slot = inner.1.as_mut();
                 let data = slot.read_data_unchecked();
-                let record = slot.raw_record_id_unchecked();
+                let record = slot.thin_record_id_unchecked();
 
                 slot.create_gap(if prev_tail == GAP_HEAD {
                     None

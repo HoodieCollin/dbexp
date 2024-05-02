@@ -2,7 +2,10 @@ use std::{ffi::os_str, os::unix::ffi::OsStrExt, path::Path};
 
 use anyhow::Result;
 
-use primitives::byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes};
+use primitives::{
+    byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
+    impl_access_bytes_for_into_bytes_type,
+};
 
 #[derive(Clone, Copy)]
 pub struct InternalPath {
@@ -64,6 +67,8 @@ impl std::hash::Hash for InternalPath {
         self.as_slice().hash(state)
     }
 }
+
+impl_access_bytes_for_into_bytes_type!(InternalPath);
 
 impl IntoBytes for InternalPath {
     fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()> {

@@ -21,13 +21,13 @@ impl AccessBytes for TableId {
         f(&bytes)
     }
 
-    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
     where
         F: FnMut(&mut [u8]) -> Result<R>,
         R: 'static,
     {
         let mut bytes = self.into_array();
-        f(&mut bytes)
+        Ok(Some(f(&mut bytes)?))
     }
 }
 
@@ -68,13 +68,13 @@ impl AccessBytes for ThinRecordId {
         f(&bytes)
     }
 
-    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
     where
         F: FnMut(&mut [u8]) -> Result<R>,
         R: 'static,
     {
         let mut bytes = self.into_array();
-        f(&mut bytes)
+        Ok(Some(f(&mut bytes)?))
     }
 }
 
@@ -116,13 +116,13 @@ impl AccessBytes for RecordId {
         f(&bytes)
     }
 
-    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<R>
+    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
     where
         F: FnMut(&mut [u8]) -> Result<R>,
         R: 'static,
     {
         let mut bytes = self.into_array();
-        f(&mut bytes)
+        Ok(Some(f(&mut bytes)?))
     }
 }
 

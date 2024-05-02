@@ -9,6 +9,10 @@ use std::{
 };
 
 use anyhow::Result;
+use primitives::{
+    byte_encoding::{ByteEncoder, IntoBytes, ScalarFromBytes},
+    impl_access_bytes_for_into_bytes_type,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::number::Builtin;
@@ -25,8 +29,9 @@ pub mod timestamp;
 // mod math;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[repr(u32)]
 pub enum DataType {
-    O16,
+    O16 = 1,
     O32,
     O64,
     Bool,
@@ -34,6 +39,57 @@ pub enum DataType {
     Timestamp,
     Text(u32),
     Bytes(u32),
+}
+
+impl_access_bytes_for_into_bytes_type!(DataType);
+
+impl IntoBytes for DataType {
+    fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()> {
+        match self {
+            Self::O16 => x.encode(1u64)?,
+            Self::O32 => x.encode(2u64)?,
+            Self::O64 => x.encode(3u64)?,
+            Self::Bool => x.encode(4u64)?,
+            Self::Number => x.encode(5u64)?,
+            Self::Timestamp => x.encode(6u64)?,
+            Self::Text(size) => {
+                x.encode(7u32)?;
+                x.encode(*size)?;
+            }
+            Self::Bytes(size) => {
+                x.encode(8u32)?;
+                x.encode(*size)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl ScalarFromBytes for DataType {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != 8 {
+            anyhow::bail!("invalid byte length")
+        }
+
+        Ok(match u8::from_bytes(&bytes[0..1])? {
+            1 => Self::O16,
+            2 => Self::O32,
+            3 => Self::O64,
+            4 => Self::Bool,
+            5 => Self::Number,
+            6 => Self::Timestamp,
+            7 => {
+                let size = u32::from_bytes(&bytes[5..])?;
+                Self::Text(size)
+            }
+            8 => {
+                let size = u32::from_bytes(&bytes[5..])?;
+                Self::Bytes(size)
+            }
+            _ => anyhow::bail!("invalid data type"),
+        })
+    }
 }
 
 impl DataType {

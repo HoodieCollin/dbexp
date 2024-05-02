@@ -8,7 +8,7 @@ use crate::{
     object_ids::{RecordId, TableId},
     store::{
         block::inner::BlockInner,
-        insert::{InsertError, InsertState},
+        result::{InsertError, InsertState},
         slot::{SlotHandle, SlotTuple},
     },
 };

@@ -30,6 +30,12 @@ pub enum InsertError<T> {
         item: Option<SlotTuple<T>>,
         iter: Option<Box<dyn Iterator<Item = SlotTuple<T>>>>,
     },
+    #[error("invalid value")]
+    InvalidValue {
+        error: Option<anyhow::Error>,
+        item: SlotTuple<T>,
+        iter: Option<Box<dyn Iterator<Item = SlotTuple<T>>>>,
+    },
 }
 
 impl<T> std::fmt::Debug for InsertError<T>
@@ -78,8 +84,49 @@ where
                     d.field("item", &Option::<ItemDetail<T>>::None);
                 }
             }
+            Self::InvalidValue { error, item, .. } => {
+                if let Some(e) = error {
+                    d.field("cause", &e);
+                }
+
+                d.field(
+                    "item",
+                    &ItemDetail {
+                        record: item.0,
+                        data: &item.1,
+                    },
+                );
+            }
         }
 
         d.finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub struct BlockCreationError {
+    #[source]
+    pub error: anyhow::Error,
+}
+
+impl std::fmt::Display for BlockCreationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.error)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StoreError<T> {
+    #[error(transparent)]
+    BlockCreationError(#[from] BlockCreationError),
+    #[error(transparent)]
+    InsertError(#[from] InsertError<T>),
+    #[error("block was not found??? (this should never happen)")]
+    BlockNotFound,
+}
+
+impl<T> StoreError<T> {
+    pub fn thread_safe(self) -> anyhow::Error {
+        anyhow::Error::msg(self.to_string())
     }
 }
