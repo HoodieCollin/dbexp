@@ -13,6 +13,14 @@ impl TableId {
     pub fn new() -> Self {
         Self(oid::O32::new())
     }
+
+    pub fn into_array(&self) -> [u8; 4] {
+        self.0.into_array()
+    }
+
+    pub fn from_array(bytes: [u8; 4]) -> Self {
+        Self(oid::O32::from_array(bytes))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -33,11 +41,41 @@ impl ColumnId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct RecordId(oid::O32, TableId);
+#[repr(transparent)]
+pub struct ThinRecordId(pub(self) oid::O32);
+
+impl ThinRecordId {
+    pub const SENTINEL: Self = Self(oid::O32::SENTINEL);
+
+    pub fn new() -> Self {
+        let mut id = oid::O32::new();
+
+        while id == oid::O32::SENTINEL {
+            id = oid::O32::new();
+        }
+
+        Self(id)
+    }
+
+    pub fn from_array(bytes: [u8; 4]) -> Self {
+        Self(oid::O32::from_array(bytes))
+    }
+
+    pub fn into_array(self) -> [u8; 4] {
+        self.0.into_array()
+    }
+
+    pub fn is_sentinel(&self) -> bool {
+        self.0 == oid::O32::SENTINEL
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct RecordId(ThinRecordId, TableId);
 
 impl RecordId {
     pub fn new(table: TableId) -> Self {
-        Self(oid::O32::new(), table)
+        Self(ThinRecordId::new(), table)
     }
 
     pub fn table(&self) -> TableId {
@@ -45,11 +83,19 @@ impl RecordId {
     }
 
     pub fn from_array(bytes: [u8; 4], table: TableId) -> Self {
-        Self(oid::O32::from_array(bytes), table)
+        Self(ThinRecordId::from_array(bytes), table)
     }
 
     pub fn into_array(self) -> [u8; 4] {
         self.0.into_array()
+    }
+
+    pub fn into_raw(self) -> ThinRecordId {
+        self.0
+    }
+
+    pub fn from_raw(raw: ThinRecordId, table: TableId) -> Self {
+        Self(raw, table)
     }
 }
 

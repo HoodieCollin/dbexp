@@ -1,12 +1,14 @@
 use anyhow::Result;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use parking_lot::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 
-use crate::{force_transmute, typed_arc::TypedArc};
+use crate::typed_arc::{TypedArc, TypedWeak};
 
 #[derive(Default)]
 #[repr(transparent)]
 pub struct SharedObject<T: 'static>(TypedArc<RwLock<T>>);
+
+pub type WeakObjectRef<T> = TypedWeak<RwLock<T>>;
 
 unsafe impl<T: Send> Send for SharedObject<T> {}
 unsafe impl<T: Send + Sync> Sync for SharedObject<T> {}
@@ -21,6 +23,10 @@ impl<T> SharedObject<T> {
         T: Clone,
     {
         Self(self.0.clone())
+    }
+
+    pub fn weak_ref(&self) -> WeakObjectRef<T> {
+        TypedArc::downgrade(&self.0)
     }
 
     pub fn unwrap_or_clone(self) -> T
@@ -40,6 +46,14 @@ impl<T> SharedObject<T> {
         }
     }
 
+    pub fn read(&self) -> RwLockReadGuard<'_, T> {
+        self.0.read()
+    }
+
+    pub fn read_recursive(&self) -> RwLockReadGuard<'_, T> {
+        self.0.read_recursive()
+    }
+
     pub fn read_with<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&T) -> R,
@@ -49,7 +63,7 @@ impl<T> SharedObject<T> {
 
     /// ## !!! WARNING !!!
     ///
-    /// This variant of `read_with` allows the same thread to bypass any waiting readers,
+    /// This variant of `read` and `read_with` allows the same thread to bypass any waiting readers,
     /// which can lead to starvation on those threads.
     pub fn read_recursive_with<F, R>(&self, f: F) -> R
     where
@@ -58,16 +72,8 @@ impl<T> SharedObject<T> {
         f(&*self.0.read_recursive())
     }
 
-    /// ## !!! WARNING !!!
-    ///
-    /// While this function is safe to use, it can easily lead to deadlocks if not used properly.
-    ///
-    /// Prefer using `read_with` or `write_with` instead.
-    pub fn read_guard(&self) -> SharedObjectRef<T> {
-        SharedObjectRef {
-            _src: self.0.clone(),
-            guard: unsafe { force_transmute::<_, RwLockReadGuard<'static, T>>(self.0.read()) },
-        }
+    pub fn write(&self) -> RwLockWriteGuard<'_, T> {
+        self.0.write()
     }
 
     pub fn write_with<F, R>(&self, f: F) -> R
@@ -77,16 +83,12 @@ impl<T> SharedObject<T> {
         f(&mut *self.0.write())
     }
 
-    /// ## !!! WARNING !!!
-    ///
-    /// While this function is safe to use, it can easily lead to deadlocks if not used properly.
-    ///
-    /// Prefer using `read_with` or `write_with` instead.
-    pub fn write_guard(&self) -> SharedObjectMut<T> {
-        SharedObjectMut {
-            _src: self.0.clone(),
-            guard: unsafe { force_transmute::<_, RwLockWriteGuard<'static, T>>(self.0.write()) },
-        }
+    pub fn upgradable(&self) -> SharedObjectReadGuard<'_, T> {
+        SharedObjectReadGuard(self.0.upgradable_read())
+    }
+
+    pub fn downgradable(&self) -> SharedObjectWriteGuard<'_, T> {
+        self.upgradable().upgrade()
     }
 }
 
@@ -144,52 +146,58 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for SharedObject<T> {
     }
 }
 
-pub struct SharedObjectRef<T: 'static> {
-    _src: TypedArc<RwLock<T>>,
-    guard: RwLockReadGuard<'static, T>,
-}
+pub struct SharedObjectReadGuard<'a, T>(RwLockUpgradableReadGuard<'a, T>);
 
-impl<T> std::ops::Deref for SharedObjectRef<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.guard
+impl<'a, T> SharedObjectReadGuard<'a, T> {
+    pub fn upgrade(self) -> SharedObjectWriteGuard<'a, T> {
+        SharedObjectWriteGuard(RwLockUpgradableReadGuard::upgrade(self.0))
     }
 }
 
-impl<T> AsRef<T> for SharedObjectRef<T> {
+impl<'a, T> std::ops::Deref for SharedObjectReadGuard<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl<'a, T> AsRef<T> for SharedObjectReadGuard<'a, T> {
     fn as_ref(&self) -> &T {
-        &self.guard
+        &*self.0
     }
 }
 
-pub struct SharedObjectMut<T: 'static> {
-    _src: TypedArc<RwLock<T>>,
-    guard: RwLockWriteGuard<'static, T>,
+pub struct SharedObjectWriteGuard<'a, T>(RwLockWriteGuard<'a, T>);
+
+impl<'a, T> SharedObjectWriteGuard<'a, T> {
+    pub fn downgrade(self) -> SharedObjectReadGuard<'a, T> {
+        SharedObjectReadGuard(RwLockWriteGuard::downgrade_to_upgradable(self.0))
+    }
 }
 
-impl<T> std::ops::Deref for SharedObjectMut<T> {
+impl<'a, T> std::ops::Deref for SharedObjectWriteGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.guard
+        &*self.0
     }
 }
 
-impl<T> std::ops::DerefMut for SharedObjectMut<T> {
+impl<'a, T> std::ops::DerefMut for SharedObjectWriteGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.guard
+        &mut *self.0
     }
 }
 
-impl<T> AsRef<T> for SharedObjectMut<T> {
+impl<'a, T> AsRef<T> for SharedObjectWriteGuard<'a, T> {
     fn as_ref(&self) -> &T {
-        &self.guard
+        &*self.0
     }
 }
 
-impl<T> AsMut<T> for SharedObjectMut<T> {
+impl<'a, T> AsMut<T> for SharedObjectWriteGuard<'a, T> {
     fn as_mut(&mut self) -> &mut T {
-        &mut self.guard
+        &mut *self.0
     }
 }

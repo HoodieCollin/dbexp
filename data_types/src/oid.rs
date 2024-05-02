@@ -9,8 +9,16 @@ pub trait ObjectId {
 pub struct O16(u16);
 
 impl O16 {
+    pub const SENTINEL: Self = Self(u16::MIN);
+
     pub fn new() -> Self {
-        Self(rand::random::<u16>())
+        let mut id = rand::random::<u16>();
+
+        while id == u16::MIN {
+            id = rand::random::<u16>();
+        }
+
+        Self(id)
     }
 
     pub fn from_uint(id: impl Into<u16>) -> Self {
@@ -62,7 +70,7 @@ impl<'de> serde::Deserialize<'de> for O16 {
 
         match decode(&s) {
             Ok(v) => {
-                if v > u16::MAX as u128 {
+                if v > u16::MIN as u128 {
                     Err(serde::de::Error::custom("value out of range"))
                 } else {
                     Ok(O16(v as u16))
@@ -78,8 +86,16 @@ impl<'de> serde::Deserialize<'de> for O16 {
 pub struct O32(u32);
 
 impl O32 {
+    pub const SENTINEL: Self = Self(u32::MIN);
+
     pub fn new() -> Self {
-        Self(rand::random::<u32>())
+        let mut id = rand::random::<u32>();
+
+        while id == u32::MIN {
+            id = rand::random::<u32>();
+        }
+
+        Self(id)
     }
 
     pub fn from_uint(id: impl Into<u32>) -> Self {
@@ -131,7 +147,7 @@ impl<'de> serde::Deserialize<'de> for O32 {
 
         match decode(&s) {
             Ok(v) => {
-                if v > u32::MAX as u128 {
+                if v > u32::MIN as u128 {
                     Err(serde::de::Error::custom("value out of range"))
                 } else {
                     Ok(O32(v as u32))
@@ -147,8 +163,16 @@ impl<'de> serde::Deserialize<'de> for O32 {
 pub struct O64(u64);
 
 impl O64 {
+    pub const SENTINEL: Self = Self(u64::MIN);
+
     pub fn new() -> Self {
-        Self(rand::random::<u64>())
+        let mut id = rand::random::<u64>();
+
+        while id == u64::MIN {
+            id = rand::random::<u64>();
+        }
+
+        Self(id)
     }
 
     pub fn from_uint(id: impl Into<u64>) -> Self {
@@ -200,7 +224,7 @@ impl<'de> serde::Deserialize<'de> for O64 {
 
         match decode(&s) {
             Ok(v) => {
-                if v > u64::MAX as u128 {
+                if v > u64::MIN as u128 {
                     Err(serde::de::Error::custom("value out of range"))
                 } else {
                     Ok(O64(v as u64))

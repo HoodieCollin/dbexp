@@ -1,364 +1,307 @@
 #![feature(lazy_cell)]
 #![feature(allocator_api)]
+#![feature(os_str_display)]
+#![feature(generic_const_exprs)]
+
+use std::{
+    any::TypeId,
+    ffi::os_str,
+    io::{Cursor, Read, Write},
+    mem::{size_of, ManuallyDrop},
+    os::unix::ffi::OsStrExt,
+    path::Path,
+};
 
 use anyhow::Result;
-use data_types::{DataValue, ExpectedType};
-use im::HashSet;
-use parking_lot::RwLock;
-use primitives::map::Map;
-use primitives::set::Set;
-use primitives::typed_arc::TypedArc;
+use data_types::oid::{O16, O32, O64};
+use object_ids::ThinRecordId;
 
-use crate::cell::{Cell, CellKey, CellPool};
-use crate::object_ids::{ColumnId, RecordId, TableId};
+use crate::object_ids::TableId;
 
-pub mod cell;
-pub mod graph;
 pub mod object_ids;
 pub mod store;
 
-struct TableInner {
-    cell_pool: CellPool,
-    columns: HashSet<ColumnId>,
-    records: HashSet<RecordId>,
-}
+trait IntoBytes: Sized {
+    const BYTE_COUNT: usize = size_of::<Self>();
 
-#[derive(Clone)]
-pub struct Table(TypedArc<(TableId, RwLock<TableInner>)>);
+    fn encode_bytes(&self, encoder: &mut ByteEncoder<'_>) -> Result<()>;
 
-impl Table {
-    pub fn new(
-        cell_pool: &CellPool,
-        columns: impl IntoIterator<Item = impl Into<ExpectedType>>,
-    ) -> Self {
-        let id = TableId::new();
-
-        Self(TypedArc::new((
-            id,
-            RwLock::new(TableInner {
-                cell_pool: cell_pool.clone(),
-                columns: columns
-                    .into_iter()
-                    .map(|kind| ColumnId::new(id, kind))
-                    .collect(),
-                records: HashSet::new(),
-            }),
-        )))
+    fn into_bytes(&self) -> Result<[u8; Self::BYTE_COUNT]> {
+        let mut bytes = [0u8; Self::BYTE_COUNT];
+        let mut encoder = ByteEncoder {
+            cursor: Cursor::new(&mut bytes),
+        };
+        self.encode_bytes(&mut encoder)?;
+        Ok(bytes)
     }
 
-    pub fn id(&self) -> TableId {
-        self.0 .0
-    }
-
-    pub fn columns(&self) -> HashSet<ColumnId> {
-        self.0 .1.read().columns.clone()
-    }
-
-    pub fn records(&self) -> Set<Record> {
-        let guard = self.0 .1.read();
-
-        guard
-            .records
-            .iter()
-            .map(|record_id| Record {
-                id: *record_id,
-                columns: guard.columns.clone(),
-                cell_pool: guard.cell_pool.clone(),
-            })
-            .collect()
-    }
-
-    pub fn create_column(&self, kind: impl Into<ExpectedType>) -> Result<ColumnId> {
-        let table_id = self.0 .0;
-        let mut inner = self.0 .1.write();
-
-        let new_id = ColumnId::new(table_id, kind);
-
-        if inner.columns.contains(&new_id) {
-            anyhow::bail!("Column already exists");
-        }
-
-        inner.columns.insert(new_id);
-
-        Ok(new_id)
-    }
-
-    pub fn load_data(&self, column: ColumnId, data: impl AsRef<[u8]>) -> Result<()> {
-        let table_id = self.0 .0;
-        let mut inner = self.0 .1.write();
-
-        if column.table() != table_id {
-            anyhow::bail!("Column does not belong to this table");
-        }
-
-        let mut loader = Loader::new(column.kind(), data.as_ref())?;
-
-        while let Some((head, value)) = loader.try_next()? {
-            let record_id = RecordId::from_array(head, table_id);
-            inner.cell_pool.new_cell(column, record_id, Some(value))?;
-            inner.records.insert(record_id);
-        }
-
-        Ok(())
-    }
-
-    pub fn get_cell(&self, key: impl CellKey) -> Option<Cell> {
-        let inner = self.0 .1.read();
-        inner.cell_pool.get(key)
+    fn into_vec(&self) -> Result<Vec<u8>> {
+        let mut bytes = vec![0u8; Self::BYTE_COUNT];
+        let mut encoder = ByteEncoder {
+            cursor: Cursor::new(&mut bytes),
+        };
+        self.encode_bytes(&mut encoder)?;
+        Ok(bytes)
     }
 }
 
-impl std::fmt::Debug for Table {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if !f.alternate() {
-            f.debug_struct("Table")
-                .field("columns", &self.columns())
-                .finish()
-        } else {
-            f.debug_struct("Table")
-                .field("id", &self.0 .0)
-                .field("columns", &self.columns())
-                .finish()
+struct ByteEncoder<'a> {
+    cursor: Cursor<&'a mut [u8]>,
+}
+
+impl ByteEncoder<'_> {
+    fn encode<T: 'static>(&mut self, value: T) -> Result<()> {
+        union Transmuter<A, B> {
+            from: ManuallyDrop<A>,
+            to: ManuallyDrop<B>,
         }
-    }
-}
 
-#[derive(Clone)]
-pub struct Record {
-    id: RecordId,
-    columns: HashSet<ColumnId>,
-    cell_pool: CellPool,
-}
-
-impl Record {
-    pub fn id(&self) -> RecordId {
-        self.id
-    }
-
-    pub fn get_cell(&self, column_id: ColumnId) -> Result<Cell> {
-        if self.columns.contains(&column_id) {
-            if let Some(cell) = self.cell_pool.get((column_id, self.id)) {
-                Ok(cell)
-            } else {
-                panic!("Cell not found");
+        impl<A, B> Transmuter<A, B> {
+            pub unsafe fn new(from: A) -> Self {
+                Self {
+                    from: ManuallyDrop::new(from),
+                }
             }
-        } else {
-            anyhow::bail!("Column does not belong to this record");
+
+            pub unsafe fn convert(self) -> B {
+                ManuallyDrop::into_inner(unsafe { self.to })
+            }
         }
-    }
-
-    pub fn get_cell_map(&self) -> Map<ColumnId, Cell> {
-        self.columns
-            .iter()
-            .filter_map(|column_id| {
-                self.cell_pool
-                    .get((*column_id, self.id))
-                    .map(|cell| (column_id.clone(), cell))
-            })
-            .collect()
-    }
-}
-
-impl PartialEq for Record {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Eq for Record {}
-
-impl std::hash::Hash for Record {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.id.hash(state)
-    }
-}
-
-impl std::fmt::Debug for Record {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if !f.alternate() {
-            f.debug_struct("Record")
-                .field("fields", &self.get_cell_map())
-                .finish()
-        } else {
-            f.debug_struct("Record")
-                .field("id", &self.id)
-                .field("fields", &self.get_cell_map())
-                .finish()
-        }
-    }
-}
-
-pub struct Loader<T: AsRef<[u8]>> {
-    src: T,
-    kind: ExpectedType,
-    index: usize,
-}
-
-impl<T: AsRef<[u8]>> Loader<T> {
-    pub fn new(kind: impl Into<ExpectedType>, src: T) -> Result<Self> {
-        let kind: ExpectedType = kind.into();
-        let src_len = src.as_ref().len();
-
-        if src_len % kind.byte_count() != 0 {
-            anyhow::bail!("buffer is not divisible by the size of intended type")
-        }
-
-        Ok(Self {
-            src,
-            kind: kind.into(),
-            index: 0,
-        })
-    }
-
-    pub fn set_index(&mut self, index: usize) {
-        self.index = index;
-    }
-
-    pub fn skip(&mut self, count: usize) {
-        self.index += count;
-    }
-
-    pub fn rewind(&mut self, count: usize) {
-        self.index -= count;
-    }
-
-    pub fn try_next(&mut self) -> Result<Option<([u8; 4], DataValue)>> {
-        let head_len = 4;
-        let body_len = self.kind.byte_count();
-        let data_len = head_len + body_len;
-
-        let nil_loc = self.index * data_len;
-        let head_start = nil_loc + 1;
-        let body_start = head_start + head_len;
-        let byte_after = nil_loc + data_len;
-
-        let src_len = self.src.as_ref().len();
-
-        if nil_loc >= src_len {
-            return Ok(None);
-        }
-
-        self.index += 1;
-
-        let data = self.src.as_ref() as *const [u8];
-        let mut head = [0; 4];
 
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                (&*data)[head_start..body_start].as_ptr(),
-                head.as_mut_ptr(),
-                4,
-            );
-
-            if (&*data)[nil_loc] == 0 {
-                Ok(Some((head, DataValue::Nil(self.kind))))
-            } else {
-                Ok(Some((
-                    head,
-                    DataValue::try_from_any(self.kind, &(&*data)[body_start..byte_after])?,
-                )))
+            match TypeId::of::<T>() {
+                t if t == TypeId::of::<usize>() => {
+                    let x = Transmuter::<_, usize>::new(value);
+                    self.cursor.write_all(&x.convert().to_ne_bytes())?;
+                }
+                t if t == TypeId::of::<O16>() => {
+                    let x = Transmuter::<_, O16>::new(value);
+                    self.cursor.write_all(&x.convert().into_array())?;
+                }
+                t if t == TypeId::of::<O32>() => {
+                    let x = Transmuter::<_, O32>::new(value);
+                    self.cursor.write_all(&x.convert().into_array())?;
+                }
+                t if t == TypeId::of::<O64>() => {
+                    let x = Transmuter::<_, O64>::new(value);
+                    self.cursor.write_all(&x.convert().into_array())?;
+                }
+                t if t == TypeId::of::<TableId>() => {
+                    let x = Transmuter::<_, TableId>::new(value);
+                    self.cursor.write_all(&x.convert().into_array())?;
+                }
+                t if t == TypeId::of::<ThinRecordId>() => {
+                    let x = Transmuter::<_, ThinRecordId>::new(value);
+                    self.cursor.write_all(&x.convert().into_array())?;
+                }
+                _ => anyhow::bail!("unsupported type"),
             }
         }
-    }
-}
-
-pub struct Unloader<'a, T: AsMut<[u8]> + 'a, U: IntoIterator<Item = &'a DataValue>> {
-    dest: T,
-    src: U::IntoIter,
-    index: usize,
-}
-
-impl<'a, T: AsMut<[u8]> + 'a, U: IntoIterator<Item = &'a DataValue>> Unloader<'a, T, U> {
-    pub fn new(dest: T, src: U) -> Self {
-        Self {
-            dest,
-            src: src.into_iter(),
-            index: 0,
-        }
+        Ok(())
     }
 
-    pub fn set_index(&mut self, index: usize) {
-        self.index = index;
-    }
-
-    pub fn skip(&mut self, count: usize) {
-        self.index += count;
-    }
-
-    pub fn rewind(&mut self, count: usize) {
-        self.index -= count;
-    }
-
-    pub fn try_next(&mut self) -> Result<Option<()>> {
-        let value = self.src.next();
-
-        if let Some(value) = value {
-            let count = value.get_type().byte_count();
-            let nil_byte = self.index * count;
-            let start = nil_byte + 1;
-            let end = nil_byte + count;
-
-            let dest = self.dest.as_mut();
-
-            if count > dest.len() {
-                anyhow::bail!("buffer is too small")
-            }
-
-            if nil_byte == dest.len() {
-                return Ok(None);
-            }
-
-            let dest = &mut dest[nil_byte..end];
-
-            self.index += 1;
-
-            value.write_to(dest)?;
-
-            Ok(Some(()))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub fn all(&mut self) -> Result<()> {
-        while self.try_next()?.is_some() {}
-
+    fn encode_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        self.cursor.write_all(bytes)?;
         Ok(())
     }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use data_types::{number::IntSize, DataType};
+trait FromBytes: IntoBytes {
+    fn decode_bytes(this: &mut Self, decoder: &mut ByteDecoder<'_>) -> Result<()>;
 
-//     use super::*;
+    fn from_bytes(bytes: &[u8]) -> Result<Self>
+    where
+        Self: Default,
+    {
+        let mut this = Self::default();
+        let mut decoder = ByteDecoder::new(bytes);
+        Self::decode_bytes(&mut this, &mut decoder)?;
+        Ok(this)
+    }
 
-//     #[test]
-//     fn test_table() -> Result<()> {
-//         let cell_pool = CellPool::new();
+    fn init_from_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        let mut decoder = ByteDecoder::new(bytes);
+        Self::decode_bytes(self, &mut decoder)?;
+        Ok(())
+    }
+}
 
-//         let table = Table::new(
-//             &cell_pool,
-//             vec![
-//                 DataType::Integer(IntSize::X8),
-//                 DataType::Integer(IntSize::X8),
-//             ],
-//         );
+struct ByteDecoder<'a> {
+    cursor: Cursor<&'a [u8]>,
+}
 
-//         let (col_1, col_2) = {
-//             let columns = table.columns();
-//             let mut columns = columns.iter().copied();
-//             (columns.next().unwrap(), columns.next().unwrap())
-//         };
+impl<'a> ByteDecoder<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self {
+            cursor: Cursor::new(bytes),
+        }
+    }
 
-//         table.load_data(vec![(col_1, [1u8, 3, 5]), (col_2, [2u8, 4, 6])])?;
+    pub fn decode<T: 'static>(&mut self, dst: &mut T) -> Result<()> {
+        unsafe {
+            match TypeId::of::<T>() {
+                t if t == TypeId::of::<usize>() => {
+                    let mut buf = [0u8; size_of::<usize>()];
+                    self.cursor.read_exact(&mut buf)?;
+                    *(dst as *mut _ as *mut usize) = usize::from_ne_bytes(buf);
+                }
+                t if t == TypeId::of::<O16>() => {
+                    let mut buf = [0u8; size_of::<O16>()];
+                    self.cursor.read_exact(&mut buf)?;
+                    *(dst as *mut _ as *mut O16) = O16::from_array(buf);
+                }
+                t if t == TypeId::of::<O32>() => {
+                    let mut buf = [0u8; size_of::<O32>()];
+                    self.cursor.read_exact(&mut buf)?;
+                    *(dst as *mut _ as *mut O32) = O32::from_array(buf);
+                }
+                t if t == TypeId::of::<O64>() => {
+                    let mut buf = [0u8; size_of::<O64>()];
+                    self.cursor.read_exact(&mut buf)?;
+                    *(dst as *mut _ as *mut O64) = O64::from_array(buf);
+                }
+                t if t == TypeId::of::<TableId>() => {
+                    let mut buf = [0u8; size_of::<TableId>()];
+                    self.cursor.read_exact(&mut buf)?;
+                    *(dst as *mut _ as *mut TableId) = TableId::from_array(buf);
+                }
+                t if t == TypeId::of::<ThinRecordId>() => {
+                    let mut buf = [0u8; size_of::<ThinRecordId>()];
+                    self.cursor.read_exact(&mut buf)?;
+                    *(dst as *mut _ as *mut ThinRecordId) = ThinRecordId::from_array(buf);
+                }
+                _ => anyhow::bail!("unsupported type"),
+            }
+        }
 
-//         let records = table.records();
+        Ok(())
+    }
 
-//         for record in records {
-//             println!("Record {:#?}", record);
-//         }
+    pub fn delegate<T: 'static + FromBytes>(&mut self, dst: &mut T) -> Result<()> {
+        let mut buf = vec![0u8; T::BYTE_COUNT];
+        self.cursor.read_exact(&mut buf)?;
+        <T as FromBytes>::init_from_bytes(dst, &buf)?;
+        Ok(())
+    }
+}
 
-//         Ok(())
-//     }
-// }
+#[derive(Clone, Copy)]
+struct InternalPath {
+    len: usize,
+    buf: [u8; 256],
+}
+
+impl Default for InternalPath {
+    fn default() -> Self {
+        Self {
+            len: 0,
+            buf: [0; 256],
+        }
+    }
+}
+
+impl std::ops::Deref for InternalPath {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_path()
+    }
+}
+
+impl AsRef<Path> for InternalPath {
+    fn as_ref(&self) -> &Path {
+        self.as_path()
+    }
+}
+
+impl AsRef<[u8]> for InternalPath {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl AsMut<[u8]> for InternalPath {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_slice_mut()
+    }
+}
+
+impl std::fmt::Debug for InternalPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_path().fmt(f)
+    }
+}
+
+impl PartialEq for InternalPath {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl Eq for InternalPath {}
+
+impl std::hash::Hash for InternalPath {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_slice().hash(state)
+    }
+}
+
+impl IntoBytes for InternalPath {
+    fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()> {
+        x.encode(self.len)?;
+        x.encode_bytes(self.as_slice())?;
+        Ok(())
+    }
+}
+
+impl FromBytes for InternalPath {
+    fn decode_bytes(this: &mut Self, x: &mut ByteDecoder<'_>) -> Result<()> {
+        x.decode(&mut this.len)?;
+        x.cursor.read_exact(&mut this.buf[..this.len])?;
+        Ok(())
+    }
+}
+
+impl InternalPath {
+    pub fn new(path: &Path) -> Result<Self> {
+        let mut buf = [0; 256];
+        let path_bytes = path.as_os_str().as_bytes();
+        let path_len = path_bytes.len();
+
+        if path_len > 256 {
+            anyhow::bail!("path too long");
+        }
+
+        buf[..path_len].copy_from_slice(path_bytes);
+        Ok(Self { buf, len: path_len })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn as_path(&self) -> &Path {
+        Path::new(os_str::OsStr::from_bytes(self.as_slice()))
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.buf[..self.len]
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[..self.len]
+    }
+
+    pub fn replace(&mut self, path: &Path) -> Result<()> {
+        let path_bytes = path.as_os_str().as_bytes();
+        let path_len = path_bytes.len();
+
+        if path_len > 256 {
+            anyhow::bail!("path too long");
+        }
+
+        self.len = path_len;
+        self.buf[..path_len].copy_from_slice(path_bytes);
+        Ok(())
+    }
+}
