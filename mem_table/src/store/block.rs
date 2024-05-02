@@ -6,15 +6,12 @@ use anyhow::Result;
 use data_types::oid;
 use memmap2::{MmapMut, MmapOptions};
 use parking_lot::RwLock;
-use primitives::{
-    shared_object::{SharedObject, SharedObjectWriteGuard},
-    typed_arc::TypedArc,
-};
+use primitives::{shared_object::SharedObject, typed_arc::TypedArc};
 
 use super::slot::{SlotData, SlotHandle, GAP_HEAD};
 use crate::{
+    byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
     object_ids::{RecordId, TableId, ThinRecordId},
-    ByteDecoder, FromBytes, IntoBytes,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -31,7 +28,7 @@ impl Default for BlockConfig {
 }
 
 impl IntoBytes for BlockConfig {
-    fn encode_bytes(&self, x: &mut crate::ByteEncoder<'_>) -> Result<()> {
+    fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()> {
         x.encode(self.block_capacity)?;
         Ok(())
     }
@@ -86,7 +83,7 @@ impl std::fmt::Debug for BlockMeta {
 }
 
 impl IntoBytes for BlockMeta {
-    fn encode_bytes(&self, x: &mut crate::ByteEncoder<'_>) -> Result<()> {
+    fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()> {
         x.encode(self.idx)?;
         x.encode(self.length)?;
         x.encode(self.gap_tail)?;
