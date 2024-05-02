@@ -6,10 +6,12 @@ use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLockReadGuard, RwLockWriteGuard,
 };
 
-use super::block::{Block, SlotTuple};
+use super::block::Block;
 use crate::object_ids::{RecordId, ThinRecordId};
 
 pub(super) const GAP_HEAD: usize = usize::MAX;
+
+pub type SlotTuple<T> = (RecordId, T);
 
 #[repr(C)]
 pub struct SlotData<T>(ThinRecordId, MaybeUninit<T>);
