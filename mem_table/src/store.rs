@@ -3,11 +3,12 @@ use std::{
     fs::{self, File},
     ops::RangeBounds,
     os::unix::fs::FileExt,
+    sync::Arc,
 };
 
 use anyhow::Result;
 
-use primitives::{shared_object::SharedObject, typed_arc::TypedArc};
+use primitives::shared_object::SharedObject;
 
 use crate::{
     byte_encoding::{FromBytes, IntoBytes},
@@ -36,7 +37,7 @@ pub mod record_store;
 
 pub struct StoreInner<T: 'static> {
     meta: StoreMeta,
-    file: Option<TypedArc<File>>,
+    file: Option<Arc<File>>,
     blocks: HashMap<usize, block::Block<T>>,
 }
 
@@ -114,7 +115,7 @@ impl<T> StoreInner<T> {
 
         Ok(Self {
             meta,
-            file: Some(TypedArc::new(file)),
+            file: Some(Arc::new(file)),
             blocks: HashMap::with_capacity(meta.block_count),
         })
     }

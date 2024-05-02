@@ -1,12 +1,12 @@
 use std::{
     alloc::Layout, collections::HashMap, fs::File, iter, os::unix::fs::FileExt, ptr::NonNull,
+    sync::Arc,
 };
 
 use anyhow::Result;
 use data_types::oid;
 use memmap2::{MmapMut, MmapOptions};
 use parking_lot::RwLock;
-use primitives::typed_arc::TypedArc;
 
 use crate::{
     byte_encoding::{FromBytes, IntoBytes},
@@ -46,7 +46,7 @@ impl<T> BlockInner<T> {
         }
     }
 
-    pub fn new(idx: usize, table: TableId, file: TypedArc<File>, offset: usize) -> Result<Self> {
+    pub fn new(idx: usize, table: TableId, file: Arc<File>, offset: usize) -> Result<Self> {
         Self::_check_layout();
 
         let fs_meta = file.metadata()?;

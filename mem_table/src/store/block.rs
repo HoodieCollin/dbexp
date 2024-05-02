@@ -1,8 +1,8 @@
-use std::fs::File;
+use std::{fs::File, sync::Arc};
 
 use anyhow::Result;
 use data_types::oid;
-use primitives::{shared_object::SharedObject, typed_arc::TypedArc};
+use primitives::shared_object::SharedObject;
 
 use crate::{
     object_ids::{RecordId, TableId},
@@ -30,7 +30,7 @@ impl<T> Clone for Block<T> {
 impl<T> Block<T> {
     pub(crate) const SLOT_BYTE_COUNT: usize = BlockInner::<T>::SLOT_BYTE_COUNT;
 
-    pub fn new(idx: usize, table: TableId, file: TypedArc<File>, offset: usize) -> Result<Self> {
+    pub fn new(idx: usize, table: TableId, file: Arc<File>, offset: usize) -> Result<Self> {
         Ok(Self(SharedObject::new(BlockInner::new(
             idx, table, file, offset,
         )?)))
