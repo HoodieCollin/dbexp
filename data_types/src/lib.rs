@@ -111,6 +111,7 @@ impl DataType {
         }
     }
 
+    #[must_use]
     pub fn write_zeros(self, dest: &mut [u8]) -> Result<usize> {
         let count = self.byte_count();
 
@@ -143,6 +144,20 @@ impl ExpectedType {
 
     pub fn into_inner(self) -> DataType {
         self.0
+    }
+}
+
+impl_access_bytes_for_into_bytes_type!(ExpectedType);
+
+impl IntoBytes for ExpectedType {
+    fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()> {
+        self.0.encode_bytes(x)
+    }
+}
+
+impl ScalarFromBytes for ExpectedType {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        Ok(Self(DataType::from_bytes(bytes)?))
     }
 }
 
@@ -210,6 +225,7 @@ impl DataValue {
         }
     }
 
+    #[must_use]
     pub fn write_to(&self, dest: &mut [u8]) -> Result<()> {
         match self {
             DataValue::Nil(ty) => {
@@ -271,10 +287,12 @@ impl DataValue {
         Ok(())
     }
 
+    #[must_use]
     pub fn try_integer_from_number<T: number::Builtin>(x: T) -> Result<Self> {
         Ok(DataValue::Number(number::Number::try_from_builtin(x)?))
     }
 
+    #[must_use]
     pub fn try_integer_from_str(s: &str) -> Result<Self> {
         Ok(DataValue::Number(number::Number::try_from_str(s)?))
     }
@@ -284,6 +302,7 @@ impl DataValue {
     ///
     /// This is useful during arithmetic operations where the result is expected to be of the
     /// same type as the left operand.
+    #[must_use]
     pub fn try_replace(&mut self, value: DataValue) -> Result<DataValue> {
         let expected_ty = self.get_type();
 
@@ -298,6 +317,7 @@ impl DataValue {
         Ok(std::mem::replace(self, value))
     }
 
+    #[must_use]
     pub fn try_from_any<T: Into<ExpectedType>, V: Any>(ty: T, value: V) -> Result<Self> {
         let expected_ty: ExpectedType = ty.into();
         let type_name = type_name::<V>();
@@ -588,6 +608,7 @@ impl DataValue {
         )
     }
 
+    #[must_use]
     pub fn try_cast(&self, ty: impl Into<ExpectedType>) -> Result<Self> {
         use DataType::{
             Bool as BoolTy, Bytes as BytesTy, Number as NumberTy, Text as TextTy,

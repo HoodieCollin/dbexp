@@ -15,8 +15,8 @@ use self::{
 pub use self::{
     config::StoreConfig,
     meta::StoreMeta,
-    record_store::{RecordInsertState, RecordStore, RecordStoreError},
-    result::{BlockCreationError, InsertError, InsertState, StoreError},
+    record_store::{RecordStore, RecordStoreError},
+    result::{BlockCreationError, InsertError, StoreError},
 };
 
 pub mod block;
@@ -26,6 +26,15 @@ pub mod meta;
 pub mod record_store;
 pub mod result;
 pub mod slot;
+
+#[derive(Debug)]
+pub enum InsertState<T: 'static> {
+    Done(Vec<SlotHandle<T>>),
+    Partial {
+        errors: Vec<(usize, InsertError<T>)>,
+        handles: Vec<(usize, SlotHandle<T>)>,
+    },
+}
 
 pub struct Store<T: 'static>(SharedObject<StoreInner<T>>);
 
@@ -134,7 +143,7 @@ impl<T> Store<T> {
             .get(&inner.meta.cur_block)
             .ok_or(StoreError::BlockNotFound)?;
 
-        let mut block_inner = block.0.write();
+        let mut block_inner = block.inner.write();
 
         let res = block._insert_one(&mut block_inner, tuple)?;
 
@@ -167,13 +176,14 @@ impl<T> Store<T> {
 
         if let Some(high) = high {
             if low == 0 && high == 0 {
-                return Ok(InsertState::NoOp);
+                return Err(StoreError::InsertError(InsertError::NoValues));
             }
         }
 
         let mut inner = self.0.write();
         let mut all_errors = Vec::new();
         let mut all_handles = Vec::with_capacity(high.unwrap_or(low));
+        let mut idx = 0;
 
         loop {
             let block = inner
@@ -181,21 +191,19 @@ impl<T> Store<T> {
                 .get(&inner.meta.cur_block)
                 .ok_or(StoreError::BlockNotFound)?;
 
-            match block.insert(iter.into_iter()) {
-                Ok(InsertState::NoOp) => {
-                    // this should never happen (already checked above)
-                    unreachable!("inserted no items")
-                }
-                Ok(InsertState::Done(handles)) => {
+            match block.insert(iter.into_iter(), idx) {
+                Ok(block::InsertState::Done(handles)) => {
                     inner.meta.item_count += handles.len();
 
                     return Ok(InsertState::Done(handles));
                 }
-                Ok(InsertState::Partial {
+                Ok(block::InsertState::Partial {
                     errors,
                     handles,
                     iter: rest,
                 }) => {
+                    idx += errors.len() + handles.len();
+
                     if !errors.is_empty() {
                         inner.meta.item_count += handles.len();
 
@@ -204,7 +212,7 @@ impl<T> Store<T> {
                         break;
                     } else {
                         iter = rest.expect("rest should be Some if errors is empty");
-                        let mut block_inner = block.0.write();
+                        let mut block_inner = block.inner.write();
 
                         // NOTE: we know the block is full but there is still more data to insert
                         if let Some(idx) = block_inner.meta.take_next_block_idx() {
@@ -240,10 +248,11 @@ impl<T> Store<T> {
             Ok(InsertState::Partial {
                 errors: all_errors,
                 handles: all_handles,
-                iter: None,
             })
         } else {
-            Ok(InsertState::Done(all_handles))
+            Ok(InsertState::Done(
+                all_handles.into_iter().map(|(_, h)| h).collect(),
+            ))
         }
     }
 }

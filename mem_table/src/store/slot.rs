@@ -86,6 +86,11 @@ impl<T> SlotData<T> {
         self.1.assume_init_ref()
     }
 
+    pub unsafe fn data_unchecked_mut(&mut self) -> &mut T {
+        debug_assert!(!self.is_gap());
+        self.1.assume_init_mut()
+    }
+
     pub unsafe fn read_data_unchecked(&self) -> T {
         debug_assert!(!self.is_gap());
         std::ptr::read(self.1.as_ptr())
@@ -119,7 +124,7 @@ impl<T> SlotData<T> {
         self.1 = MaybeUninit::new(data);
     }
 
-    pub fn update_data(&mut self, data: T) {
+    pub fn replace(&mut self, data: T) {
         #[cfg(debug_assertions)]
         {
             if self.is_gap() {
@@ -128,6 +133,21 @@ impl<T> SlotData<T> {
         }
 
         self.1 = MaybeUninit::new(data);
+    }
+
+    #[must_use]
+    pub fn update<F, R>(&mut self, f: F) -> Result<R>
+    where
+        F: FnOnce(&mut T) -> Result<R>,
+    {
+        #[cfg(debug_assertions)]
+        {
+            if self.is_gap() {
+                panic!("slot is a gap");
+            }
+        }
+
+        f(unsafe { self.data_unchecked_mut() })
     }
 }
 
@@ -151,17 +171,18 @@ impl<T: std::fmt::Debug> std::fmt::Debug for SlotData<T> {
 }
 
 pub struct SlotHandle<T: 'static> {
-    pub(super) block: Block<T>,
-    pub(super) gen: oid::O64,
-    pub(super) idx: usize,
+    pub block: Block<T>,
+    pub gen: oid::O64,
+    pub idx: usize,
 }
 
 impl<T> SlotHandle<T> {
-    pub fn read_with<F, R>(&self, mut f: F) -> Result<R>
+    #[must_use]
+    pub fn read_with<F, R>(&self, f: F) -> Result<R>
     where
-        F: FnMut(MappedRwLockReadGuard<'_, SlotData<T>>) -> R,
+        F: FnOnce(MappedRwLockReadGuard<'_, SlotData<T>>) -> Result<R>,
     {
-        let outer = self.block.0.read_recursive();
+        let outer = self.block.inner.read_recursive();
         let inner = outer.slots_by_index[self.idx].read();
 
         if let Some(gen) = inner.0 {
@@ -174,14 +195,15 @@ impl<T> SlotHandle<T> {
 
         let guard = RwLockReadGuard::map(inner, |(_, ptr)| unsafe { ptr.as_ref() });
 
-        Ok(f(guard))
+        f(guard)
     }
 
-    pub fn write_with<F>(&self, mut f: F) -> Result<()>
+    #[must_use]
+    pub fn write_with<F, R>(&self, f: F) -> Result<R>
     where
-        F: FnMut(MappedRwLockWriteGuard<'_, SlotData<T>>),
+        F: FnOnce(MappedRwLockWriteGuard<'_, SlotData<T>>) -> Result<R>,
     {
-        let outer = self.block.0.read_recursive();
+        let outer = self.block.inner.read_recursive();
         let inner = outer.slots_by_index[self.idx].write();
 
         if let Some(gen) = inner.0 {
@@ -194,13 +216,12 @@ impl<T> SlotHandle<T> {
 
         let guard = RwLockWriteGuard::map(inner, |(_, ptr)| unsafe { ptr.as_mut() });
 
-        f(guard);
-
-        Ok(())
+        f(guard)
     }
 
+    #[must_use]
     pub fn remove_self(self) -> Result<SlotTuple<T>> {
-        let mut outer = self.block.0.write();
+        let mut outer = self.block.inner.write();
         let prev_tail = outer.meta.gap_tail;
 
         unsafe {
@@ -228,7 +249,7 @@ impl<T> SlotHandle<T> {
                 (record, data)
             };
 
-            outer.index_by_record.remove(&record);
+            outer.index_by_record.shift_remove(&record);
             outer.meta.gap_tail = self.idx;
             outer.meta.gap_count += 1;
 
@@ -273,6 +294,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for SlotHandle<T> {
 
         let res = self.read_with(|data| {
             d.field("valid", &!data.is_gap()).field("data", &data);
+            Ok(())
         });
 
         match res {

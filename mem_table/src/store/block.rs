@@ -8,7 +8,7 @@ use crate::{
     object_ids::{RecordId, TableId},
     store::{
         block::inner::BlockInner,
-        result::{InsertError, InsertState},
+        result::InsertError,
         slot::{SlotHandle, SlotTuple},
     },
 };
@@ -19,67 +19,91 @@ pub mod config;
 pub mod inner;
 pub mod meta;
 
-pub struct Block<T: 'static>(pub(super) SharedObject<BlockInner<T>>);
+pub enum InsertState<T: 'static> {
+    Done(Vec<SlotHandle<T>>),
+    Partial {
+        errors: Vec<(usize, InsertError<T>)>,
+        handles: Vec<(usize, SlotHandle<T>)>,
+        iter: Option<Box<dyn Iterator<Item = SlotTuple<T>>>>,
+    },
+}
+
+pub struct Block<T: 'static> {
+    idx: usize,
+    pub(in crate::store) inner: SharedObject<BlockInner<T>>,
+}
 
 impl<T> Clone for Block<T> {
     fn clone(&self) -> Self {
-        Self(self.0.clone())
+        Self {
+            idx: self.idx,
+            inner: self.inner.clone(),
+        }
     }
 }
 
 impl<T> Block<T> {
     pub(crate) const SLOT_BYTE_COUNT: usize = BlockInner::<T>::SLOT_BYTE_COUNT;
 
+    #[must_use]
     pub fn new(idx: usize, table: TableId, file: Arc<File>, offset: usize) -> Result<Self> {
-        Ok(Self(SharedObject::new(BlockInner::new(
-            idx, table, file, offset,
-        )?)))
+        Ok(Self {
+            idx,
+            inner: SharedObject::new(BlockInner::new(idx, table, file, offset)?),
+        })
     }
 
+    #[must_use]
     pub fn new_anon(idx: usize, table: TableId, config: Option<BlockConfig>) -> Result<Self> {
-        Ok(Self(SharedObject::new(BlockInner::new_anon(
-            idx, table, config,
-        )?)))
+        Ok(Self {
+            idx,
+            inner: SharedObject::new(BlockInner::new_anon(idx, table, config)?),
+        })
+    }
+
+    pub fn idx(&self) -> usize {
+        self.idx
     }
 
     pub fn len_as_bytes(&self) -> usize {
-        self.0.read_with(|inner| inner.len_as_bytes())
+        self.inner.read_with(|inner| inner.len_as_bytes())
     }
 
     pub fn capacity_as_bytes(&self) -> usize {
-        self.0.read_with(|inner| inner.capacity_as_bytes())
+        self.inner.read_with(|inner| inner.capacity_as_bytes())
     }
 
     pub fn has_gaps(&self) -> bool {
-        self.0.read_with(|inner| inner.has_gaps())
+        self.inner.read_with(|inner| inner.has_gaps())
     }
 
     pub fn gap_count(&self) -> usize {
-        self.0.read_with(|inner| inner.meta.gap_count)
+        self.inner.read_with(|inner| inner.meta.gap_count)
     }
 
     pub fn len(&self) -> usize {
-        self.0.read_with(|inner| inner.len())
+        self.inner.read_with(|inner| inner.len())
     }
 
     pub fn capacity(&self) -> usize {
-        self.0.read_with(|inner| inner.capacity())
+        self.inner.read_with(|inner| inner.capacity())
     }
 
     pub fn is_full(&self) -> bool {
-        self.0.read_with(|inner| inner.is_full())
+        self.inner.read_with(|inner| inner.is_full())
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.read_with(|inner| inner.is_empty())
+        self.inner.read_with(|inner| inner.is_empty())
     }
 
     pub fn sync_all(&self) -> Result<()> {
-        self.0.read_with(|inner| inner.sync_all())
+        self.inner.read_with(|inner| inner.sync_all())
     }
 
+    #[must_use]
     pub fn insert_one(&self, record: RecordId, data: T) -> Result<SlotHandle<T>, InsertError<T>> {
-        self.0.write_with(|inner| {
+        self.inner.write_with(|inner| {
             if inner.meta.table != record.table() {
                 Err(InsertError::TableMismatch {
                     item: (record, data),
@@ -91,6 +115,7 @@ impl<T> Block<T> {
         })
     }
 
+    #[must_use]
     pub(super) fn _insert_one(
         &self,
         inner: &mut BlockInner<T>,
@@ -152,7 +177,8 @@ impl<T> Block<T> {
         })
     }
 
-    pub fn insert<I>(&self, iter: I) -> Result<InsertState<T>, InsertError<T>>
+    #[must_use]
+    pub fn insert<I>(&self, iter: I, idx_offset: usize) -> Result<InsertState<T>, InsertError<T>>
     where
         I: IntoIterator<Item = SlotTuple<T>> + 'static,
     {
@@ -161,11 +187,11 @@ impl<T> Block<T> {
 
         if let Some(high) = high {
             if low == 0 && high == 0 {
-                return Ok(InsertState::NoOp);
+                return Err(InsertError::NoValues);
             }
         }
 
-        let inner = self.0.upgradable();
+        let inner = self.inner.upgradable();
 
         if inner.is_full() {
             return Err(InsertError::BlockFull {
@@ -178,15 +204,16 @@ impl<T> Block<T> {
         let mut errors = Vec::new();
         let mut handles = Vec::new();
         let exhausted;
+        let mut idx = idx_offset;
 
         loop {
             match iter.next() {
                 Some(tuple) => match self._insert_one(&mut inner, tuple) {
                     Ok(handle) => {
-                        handles.push(handle);
+                        handles.push((idx, handle));
                     }
                     Err(err) => {
-                        errors.push(err);
+                        errors.push((idx, err));
                     }
                 },
                 None => {
@@ -194,6 +221,8 @@ impl<T> Block<T> {
                     break;
                 }
             }
+
+            idx += 1;
 
             if inner.is_full() {
                 exhausted = false;
@@ -214,14 +243,16 @@ impl<T> Block<T> {
                 iter: None,
             })
         } else {
-            Ok(InsertState::Done(handles))
+            Ok(InsertState::Done(
+                handles.into_iter().map(|(_, h)| h).collect(),
+            ))
         }
     }
 }
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Block<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.0.read_recursive();
+        let inner = self.inner.read_recursive();
 
         let mut d = f.debug_struct("Block");
 

@@ -37,6 +37,7 @@ impl FromBytes for BlockConfig {
 }
 
 impl BlockConfig {
+    #[must_use]
     pub fn new(block_capacity: usize) -> Result<Self> {
         let block_capacity = NonZeroUsize::new(block_capacity)
             .ok_or_else(|| anyhow::anyhow!("Block capacity must be greater than zero"))?;
@@ -48,6 +49,7 @@ impl BlockConfig {
         self.block_capacity.get()
     }
 
+    #[must_use]
     pub fn set_block_capacity(&mut self, block_capacity: usize) -> Result<()> {
         self.block_capacity = NonZeroUsize::new(block_capacity)
             .ok_or_else(|| anyhow::anyhow!("Block capacity must be greater than zero"))?;

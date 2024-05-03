@@ -4,27 +4,65 @@
 #![feature(os_str_display)]
 #![feature(generic_const_exprs)]
 
-use std::{collections::HashMap, mem::MaybeUninit, num::NonZeroUsize, path::Path};
+use std::{mem::MaybeUninit, num::NonZeroUsize, ops::RangeBounds, path::Path};
 
 use anyhow::Result;
-use data_types::{DataType, DataValue};
+use data_types::{DataType, DataValue, ExpectedType};
+use indexmap::IndexMap;
 use internal_path::InternalPath;
 use object_ids::TableId;
 use primitives::{
     byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
     impl_access_bytes_for_into_bytes_type,
+    shared_object::SharedObject,
 };
-use store::{record_store::MAX_COLUMNS, RecordStore, Store, StoreConfig};
+use store::{
+    record_store::{ColumnIndexes, RecordSlotHandle, MAX_COLUMNS},
+    slot::SlotHandle,
+    RecordStore, Store, StoreConfig, StoreError,
+};
 
 pub mod internal_path;
 pub mod object_ids;
 pub mod store;
 
+#[derive(thiserror::Error, Debug)]
+pub enum InsertError {
+    #[error("record has too many values")]
+    ColumnLengthMismatch {
+        record_handle: RecordSlotHandle,
+        expected: usize,
+        values: Vec<Option<DataValue>>,
+    },
+    #[error("record value is invalid")]
+    InvalidValue {
+        record_handle: RecordSlotHandle,
+        column_handles: Vec<SlotHandle<DataValue>>,
+        column: usize,
+        values: Vec<Option<DataValue>>,
+        #[source]
+        error: anyhow::Error,
+    },
+    #[error("no values to insert")]
+    NoValues { record_handle: RecordSlotHandle },
+    #[error(transparent)]
+    Unexpected(#[from] anyhow::Error),
+}
+
+#[derive(Debug)]
+pub enum InsertState {
+    Done(Vec<RecordSlotHandle>),
+    Partial {
+        handles: Vec<(usize, RecordSlotHandle, Vec<SlotHandle<DataValue>>)>,
+        errors: Vec<(usize, InsertError)>,
+    },
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DataConfig {
     pub initial_block_count: Option<NonZeroUsize>,
     pub block_capacity: Option<NonZeroUsize>,
-    pub data_type: DataType,
+    pub data_type: ExpectedType,
 }
 
 impl_access_bytes_for_into_bytes_type!(DataConfig);
@@ -77,7 +115,7 @@ impl DataConfig {
         Self {
             initial_block_count: None,
             block_capacity: None,
-            data_type,
+            data_type: ExpectedType::new(data_type),
         }
     }
 
@@ -210,6 +248,18 @@ impl ColumnConfigs {
     pub fn len(&self) -> usize {
         self.0.get()
     }
+
+    pub fn get(&self, index: usize) -> Option<&DataConfig> {
+        if index < self.0.get() {
+            Some(unsafe { self.get_unchecked(index) })
+        } else {
+            None
+        }
+    }
+
+    pub unsafe fn get_unchecked(&self, index: usize) -> &DataConfig {
+        self.1.get_unchecked(index).assume_init_ref()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -294,27 +344,289 @@ pub struct Table {
     id: TableId,
     config: TableConfig,
     records: RecordStore,
-    columns: HashMap<usize, Store<DataValue>>,
+    columns: SharedObject<IndexMap<usize, Store<DataValue>>>,
 }
 
 impl Table {
     pub fn new(id: TableId, config: TableConfig) -> Result<Self> {
         let column_count = config.columns.len();
-        let columns = HashMap::with_capacity(column_count);
+        let columns = IndexMap::with_capacity(column_count);
         let records = RecordStore::new(Some(id), Some(config.into()), column_count)?;
 
         Ok(Self {
             id,
             config,
             records,
-            columns,
+            columns: SharedObject::new(columns),
         })
+    }
+
+    pub fn get_column_store(&self, idx: usize) -> Result<Store<DataValue>> {
+        if idx >= self.config.columns.len() {
+            anyhow::bail!("column index out of bounds");
+        }
+
+        let columns = self.columns.upgradable();
+
+        if let Some(store) = columns.get(&idx) {
+            return Ok(store.clone());
+        }
+
+        let store = Store::new(
+            Some(self.id),
+            Some(unsafe {
+                self.config
+                    .columns
+                    .get_unchecked(idx)
+                    .into_store_config(&self.config)
+            }),
+        )?;
+
+        let mut columns = columns.upgrade();
+
+        columns.insert(idx, store.clone());
+
+        Ok(store)
+    }
+
+    pub fn get_column_store_range(
+        &self,
+        indices: impl RangeBounds<usize>,
+    ) -> Result<Vec<Store<DataValue>>> {
+        let start = match indices.start_bound() {
+            std::ops::Bound::Included(&start) => start,
+            std::ops::Bound::Excluded(&start) => start + 1,
+            std::ops::Bound::Unbounded => 0,
+        };
+
+        let end = match indices.end_bound() {
+            std::ops::Bound::Included(&end) => end + 1,
+            std::ops::Bound::Excluded(&end) => end,
+            std::ops::Bound::Unbounded => self.config.columns.len(),
+        };
+
+        if end > self.config.columns.len() {
+            anyhow::bail!("column index out of bounds");
+        }
+
+        let count = end - start;
+
+        let mut stores = Vec::with_capacity(count);
+        let mut missing = Vec::with_capacity(count);
+
+        let columns = self.columns.upgradable();
+
+        for idx in start..end {
+            if let Some(store) = columns.get(&idx) {
+                stores.push(store.clone());
+            } else {
+                missing.push(idx);
+            }
+        }
+
+        if missing.is_empty() {
+            return Ok(stores);
+        }
+
+        let mut columns = columns.upgrade();
+
+        for idx in missing {
+            let store = Store::new(
+                Some(self.id),
+                Some(unsafe {
+                    self.config
+                        .columns
+                        .get_unchecked(idx)
+                        .into_store_config(&self.config)
+                }),
+            )?;
+
+            columns.insert(idx, store.clone());
+            stores.push(store);
+        }
+
+        Ok(stores)
+    }
+
+    pub fn insert_one(&self, values: Vec<Option<DataValue>>) -> Result<RecordSlotHandle> {
+        let val_count = values.len();
+
+        // Empty check
+        if val_count == 0 {
+            let (_, record_handle) = self.records.insert_one().map_err(StoreError::thread_safe)?;
+            return Ok(record_handle);
+        // Out of bounds check
+        } else if val_count > self.config.columns.len() {
+            anyhow::bail!("value count exceeds column count");
+        }
+
+        let (record, record_handle) = self.records.insert_one().map_err(StoreError::thread_safe)?;
+
+        let stores = self.get_column_store_range(..values.len())?;
+
+        record_handle.write_with(|mut data| {
+            data.update(|columns: &mut ColumnIndexes| {
+                for (i, value) in values.into_iter().enumerate() {
+                    if let Some(data) = value {
+                        let store = stores.get(i).expect("store exists");
+                        let data_handle = store
+                            .insert_one(record, data)
+                            .map_err(StoreError::thread_safe)?;
+
+                        columns.replace(i, data_handle.into())?;
+                    }
+                }
+
+                Ok(())
+            })
+        })?;
+
+        Ok(record_handle)
+    }
+
+    pub fn insert<I>(&self, values: I) -> Result<InsertState, anyhow::Error>
+    where
+        I: IntoIterator<Item = Vec<Option<DataValue>>>,
+    {
+        let records = self
+            .records
+            .insert_map(values)
+            .map_err(StoreError::thread_safe)?;
+
+        let mut all_handles = Vec::with_capacity(records.len());
+        let mut all_errors = Vec::new();
+        let expected = self.config.columns.len();
+
+        for (idx, record, record_handle, values) in records {
+            let val_count = values.len();
+
+            // Empty check
+            if val_count == 0 {
+                all_handles.push((idx, record_handle, vec![]));
+                continue;
+            // Out of bounds check
+            } else if val_count > expected {
+                all_errors.push((
+                    idx,
+                    InsertError::ColumnLengthMismatch {
+                        record_handle,
+                        expected,
+                        values,
+                    },
+                ));
+
+                continue;
+            }
+
+            let stores = self.get_column_store_range(..values.len())?;
+            let handle = record_handle.clone();
+            let needs_rollback = handle.write_with(|mut data| {
+                data.update(|columns: &mut ColumnIndexes| {
+                    let mut column_handles = Vec::with_capacity(val_count);
+
+                    for (column, value) in values.iter().enumerate() {
+                        if let Some(data) = value {
+                            let store = stores.get(column).expect("store exists");
+                            let data_insert_res = store.insert_one(record, data.clone());
+
+                            match data_insert_res {
+                                Ok(data_handle) => {
+                                    column_handles.push(data_handle.clone());
+                                    columns.replace(column, data_handle.into())?;
+                                }
+                                Err(StoreError::InsertError(
+                                    store::result::InsertError::InvalidValue { error, .. },
+                                )) => {
+                                    all_errors.push((
+                                        idx,
+                                        InsertError::InvalidValue {
+                                            record_handle,
+                                            column_handles,
+                                            column,
+                                            values: values.clone(),
+                                            error,
+                                        },
+                                    ));
+
+                                    return Ok(None);
+                                }
+                                Err(error) => {
+                                    return Ok(Some((
+                                        column,
+                                        error,
+                                        record_handle,
+                                        column_handles,
+                                    )));
+                                }
+                            }
+                        }
+                    }
+
+                    all_handles.push((idx, record_handle, column_handles));
+                    Ok(None)
+                })
+            })?;
+
+            if let Some((_, _, record_handle, column_handles)) = needs_rollback {
+                for handle in column_handles {
+                    handle.remove_self()?;
+                }
+
+                record_handle.remove_self()?;
+
+                while all_handles.len() > 0 || all_errors.len() > 0 {
+                    if let Some((_, error)) = all_errors.pop() {
+                        match error {
+                            InsertError::InvalidValue {
+                                record_handle,
+                                column_handles,
+                                ..
+                            } => {
+                                for handle in column_handles {
+                                    handle.remove_self()?;
+                                }
+
+                                record_handle.remove_self()?;
+                            }
+                            InsertError::NoValues { record_handle } => {
+                                record_handle.remove_self()?;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if let Some((_, record_handle, column_handles)) = all_handles.pop() {
+                        for handle in column_handles {
+                            handle.remove_self()?;
+                        }
+
+                        record_handle.remove_self()?;
+                    }
+                }
+
+                anyhow::bail!("unexpected error resulted in rollback")
+            }
+        }
+
+        if all_errors.is_empty() {
+            Ok(InsertState::Done(
+                all_handles
+                    .into_iter()
+                    .map(|(_, handle, _)| handle)
+                    .collect(),
+            ))
+        } else {
+            Ok(InsertState::Partial {
+                handles: all_handles,
+                errors: all_errors,
+            })
+        }
     }
 }
 
 #[allow(dead_code)]
 #[cfg(test)]
-mod test {
+mod tests {
     use anyhow::Result;
 
     use super::*;
@@ -330,11 +642,11 @@ mod test {
     // }
 
     #[test]
-    fn test_table() -> Result<()> {
+    fn test_insert_one() -> Result<()> {
         let columns = vec![
             DataConfig::new(DataType::Number),
             DataConfig::new(DataType::Bool),
-            DataConfig::new(DataType::Timestamp),
+            DataConfig::new(DataType::Text(50)),
         ];
 
         let table_config = TableConfig::new(&columns)?;
@@ -342,6 +654,57 @@ mod test {
 
         assert_eq!(table.config, table_config);
 
+        table.insert_one(vec![
+            Some(DataValue::try_from_any(columns[0].data_type, 42)?),
+            Some(DataValue::Bool(true)),
+            Some(DataValue::try_from_any(columns[2].data_type, "testing")?),
+        ])?;
+
+        println!("{:#?}", table);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_insert() -> Result<()> {
+        let columns = vec![
+            DataConfig::new(DataType::Number),
+            DataConfig::new(DataType::Bool),
+            DataConfig::new(DataType::Text(50)),
+        ];
+
+        let table_config = TableConfig::new(&columns)?;
+        let table = Table::new(TableId::new(), table_config)?;
+
+        assert_eq!(table.config, table_config);
+
+        const ROW_COUNT: usize = 10;
+        let alphabet = "abcdefghijklmnopqrstuvwxyz";
+
+        let mut n = 0;
+        let rows = std::iter::repeat_with(|| {
+            let idx = n / ROW_COUNT;
+            let row = vec![
+                Some(DataValue::try_from_any(columns[0].data_type, n)?),
+                Some(DataValue::Bool(idx % 2 == 0)),
+                Some(DataValue::try_from_any(
+                    columns[2].data_type,
+                    &alphabet[idx..idx + 1],
+                )?),
+            ];
+
+            n += 10;
+            Ok(row)
+        })
+        .take(ROW_COUNT)
+        .collect::<Result<Vec<_>>>()?;
+
+        let result = table.insert(rows)?;
+
+        println!("{:#?}", result);
+        println!("##############################################################");
+        println!("##############################################################");
+        println!("##############################################################");
         println!("{:#?}", table);
 
         Ok(())

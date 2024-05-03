@@ -38,6 +38,9 @@ impl ScalarFromBytes for TableId {
 }
 
 impl TableId {
+    pub const INVALID: Self = Self(oid::O32::INVALID);
+    pub const SENTINEL: Option<Self> = None;
+
     pub fn new() -> Self {
         Self(oid::O32::new())
     }
@@ -85,6 +88,7 @@ impl ScalarFromBytes for ThinRecordId {
 }
 
 impl ThinRecordId {
+    pub const INVALID: Self = Self(oid::O32::INVALID);
     pub const SENTINEL: Option<Self> = None;
 
     pub fn new() -> Self {
@@ -133,6 +137,9 @@ impl ScalarFromBytes for RecordId {
 }
 
 impl RecordId {
+    pub const INVALID: Self = Self(ThinRecordId::INVALID, TableId::INVALID);
+    pub const SENTINEL: Option<Self> = None;
+
     pub fn new(table: TableId) -> Self {
         Self(ThinRecordId::new(), table)
     }

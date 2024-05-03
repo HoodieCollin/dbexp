@@ -5,13 +5,13 @@
 
 use std::{
     alloc::{AllocError, Allocator, Layout},
-    collections::HashMap,
     mem::ManuallyDrop,
     ptr::NonNull,
     sync::Arc,
 };
 
 use anyhow::Result;
+use indexmap::IndexMap;
 use parking_lot::RwLock;
 
 pub mod byte_encoding;
@@ -60,7 +60,7 @@ impl std::fmt::Debug for UnsafeNonNull {
 type StackEntry = Arc<RwLock<Vec<UnsafeNonNull>>>;
 
 /// A map of layouts to their respective stack of recycled memory blocks.
-type StackMap = Arc<RwLock<HashMap<Layout, StackEntry>>>;
+type StackMap = Arc<RwLock<IndexMap<Layout, StackEntry>>>;
 
 pub enum RecyclerError {
     Unexpected(anyhow::Error),
@@ -77,7 +77,7 @@ impl From<anyhow::Error> for RecyclerError {
 pub struct Recycler(StackMap);
 
 impl Recycler {
-    pub fn new(stack_map: HashMap<Layout, StackEntry>) -> Self {
+    pub fn new(stack_map: IndexMap<Layout, StackEntry>) -> Self {
         Self(Arc::new(RwLock::new(stack_map)))
     }
 
@@ -162,7 +162,7 @@ impl std::hash::Hash for Recycler {
 
 impl Default for Recycler {
     fn default() -> Self {
-        Self::new(HashMap::new())
+        Self::new(IndexMap::new())
     }
 }
 

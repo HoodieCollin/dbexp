@@ -94,7 +94,7 @@ impl<T> SharedObject<T> {
 
 impl<T: std::fmt::Debug> std::fmt::Debug for SharedObject<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.read_recursive_with(|inner| write!(f, "{:?}", inner))
+        self.read_recursive_with(|inner| std::fmt::Debug::fmt(inner, f))
     }
 }
 

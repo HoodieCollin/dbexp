@@ -46,6 +46,7 @@ impl FromBytes for StoreConfig {
 }
 
 impl StoreConfig {
+    #[must_use]
     pub fn new(
         initial_block_count: usize,
         block_capacity: usize,

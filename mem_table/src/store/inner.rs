@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     fs::{self, File},
     os::unix::fs::FileExt,
     sync::Arc,
@@ -7,6 +6,7 @@ use std::{
 
 use anyhow::Result;
 
+use indexmap::IndexMap;
 use primitives::byte_encoding::{FromBytes, IntoBytes};
 
 use crate::{
@@ -17,10 +17,11 @@ use crate::{
 pub struct StoreInner<T: 'static> {
     pub(super) meta: StoreMeta,
     pub(super) file: Option<Arc<File>>,
-    pub(super) blocks: HashMap<usize, Block<T>>,
+    pub(super) blocks: IndexMap<usize, Block<T>>,
 }
 
 impl<T> StoreInner<T> {
+    #[must_use]
     pub fn new(table: Option<TableId>, config: Option<StoreConfig>) -> Result<Self> {
         let config = config.unwrap_or_default();
 
@@ -31,6 +32,7 @@ impl<T> StoreInner<T> {
         }
     }
 
+    #[must_use]
     pub fn new_memory_only(table: Option<TableId>, config: Option<StoreConfig>) -> Result<Self> {
         let config = config.unwrap_or_default();
 
@@ -41,10 +43,11 @@ impl<T> StoreInner<T> {
         Ok(Self {
             meta: StoreMeta::new(table, Some(config)),
             file: None,
-            blocks: HashMap::with_capacity(config.initial_block_count.get()),
+            blocks: IndexMap::with_capacity(config.initial_block_count.get()),
         })
     }
 
+    #[must_use]
     pub fn new_persisted(table: Option<TableId>, config: Option<StoreConfig>) -> Result<Self> {
         let table = table.unwrap_or_else(|| TableId::new());
         let config = config.unwrap_or_default();
@@ -95,7 +98,7 @@ impl<T> StoreInner<T> {
         Ok(Self {
             meta,
             file: Some(Arc::new(file)),
-            blocks: HashMap::with_capacity(meta.block_count.get()),
+            blocks: IndexMap::with_capacity(meta.block_count.get()),
         })
     }
 }

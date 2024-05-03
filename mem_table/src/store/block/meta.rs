@@ -101,6 +101,7 @@ impl BlockMeta {
         self.config.block_capacity()
     }
 
+    #[must_use]
     pub(in crate::store) fn take_next_block_idx(&mut self) -> Option<usize> {
         let idx = self.next_block;
 

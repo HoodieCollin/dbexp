@@ -8,12 +8,13 @@ use base62::{decode, encode};
 pub struct O16(NonZeroU16);
 
 impl O16 {
+    pub const INVALID: Self = Self(NonZeroU16::MAX);
     pub const SENTINEL: Option<Self> = None;
 
     pub fn new() -> Self {
         let mut id = rand::random::<u16>();
 
-        while id == u16::MIN {
+        while id == u16::MIN || id == u16::MAX {
             id = rand::random::<u16>();
         }
 
@@ -111,12 +112,13 @@ impl<'de> serde::Deserialize<'de> for O16 {
 pub struct O32(NonZeroU32);
 
 impl O32 {
+    pub const INVALID: Self = Self(NonZeroU32::MAX);
     pub const SENTINEL: Option<Self> = None;
 
     pub fn new() -> Self {
         let mut id = rand::random::<u32>();
 
-        while id == u32::MIN {
+        while id == u32::MIN || id == u32::MAX {
             id = rand::random::<u32>();
         }
 
@@ -214,12 +216,13 @@ impl<'de> serde::Deserialize<'de> for O32 {
 pub struct O64(NonZeroU64);
 
 impl O64 {
+    pub const INVALID: Self = Self(NonZeroU64::MAX);
     pub const SENTINEL: Option<Self> = None;
 
     pub fn new() -> Self {
         let mut id = rand::random::<u64>();
 
-        while id == u64::MIN {
+        while id == u64::MIN || id == u64::MAX {
             id = rand::random::<u64>();
         }
 

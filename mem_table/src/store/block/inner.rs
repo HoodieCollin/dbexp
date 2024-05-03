@@ -1,10 +1,8 @@
-use std::{
-    alloc::Layout, collections::HashMap, fs::File, iter, os::unix::fs::FileExt, ptr::NonNull,
-    sync::Arc,
-};
+use std::{alloc::Layout, fs::File, iter, os::unix::fs::FileExt, ptr::NonNull, sync::Arc};
 
 use anyhow::Result;
 use data_types::oid;
+use indexmap::IndexMap;
 use memmap2::{MmapMut, MmapOptions};
 use parking_lot::RwLock;
 use primitives::byte_encoding::{FromBytes, IntoBytes};
@@ -21,7 +19,7 @@ pub struct BlockInner<T: 'static> {
     pub(in crate::store) meta: BlockMeta,
     pub(in crate::store) data: MmapMut,
     pub(in crate::store) slots_by_index: Vec<RwLock<(Option<oid::O64>, NonNull<SlotData<T>>)>>,
-    pub(in crate::store) index_by_record: HashMap<ThinRecordId, usize>,
+    pub(in crate::store) index_by_record: IndexMap<ThinRecordId, usize>,
 }
 
 impl<T> Drop for BlockInner<T> {
@@ -46,6 +44,7 @@ impl<T> BlockInner<T> {
         }
     }
 
+    #[must_use]
     pub fn new(idx: usize, table: TableId, file: Arc<File>, offset: usize) -> Result<Self> {
         Self::_check_layout();
 
@@ -88,7 +87,7 @@ impl<T> BlockInner<T> {
             .take(block_capacity)
             .collect::<Vec<_>>();
 
-        let index_by_record = HashMap::with_capacity(block_capacity);
+        let index_by_record = IndexMap::with_capacity(block_capacity);
 
         Ok(Self {
             data,
@@ -98,6 +97,7 @@ impl<T> BlockInner<T> {
         })
     }
 
+    #[must_use]
     pub fn new_anon(idx: usize, table: TableId, config: Option<BlockConfig>) -> Result<Self> {
         Self::_check_layout();
 
@@ -119,7 +119,7 @@ impl<T> BlockInner<T> {
             .take(block_capacity)
             .collect::<Vec<_>>();
 
-        let index_by_record = HashMap::with_capacity(block_capacity);
+        let index_by_record = IndexMap::with_capacity(block_capacity);
 
         Ok(Self {
             data,
@@ -157,6 +157,7 @@ impl<T> BlockInner<T> {
         self.len() == self.capacity()
     }
 
+    #[must_use]
     pub fn sync_all(&self) -> Result<()> {
         self.data.flush()?;
         Ok(())

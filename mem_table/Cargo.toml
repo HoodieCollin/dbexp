@@ -7,6 +7,7 @@
   anyhow      = { workspace = true }
   data_types  = { path = "../data_types" }
   im          = { workspace = true }
+  indexmap    = { workspace = true }
   memmap2     = { workspace = true }
   parking_lot = { workspace = true }
   petgraph    = { workspace = true }
