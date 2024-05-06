@@ -1,12 +1,21 @@
 use anyhow::Result;
 use serde::Serialize;
 
+const MAX_LEN: usize = 4096;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct Bytes(pub(crate) Vec<u8>, pub(crate) usize);
 
 impl Bytes {
-    pub fn new(cap: usize) -> Self {
-        Self(Vec::with_capacity(cap), cap)
+    pub const MAX_LEN: usize = MAX_LEN;
+
+    #[must_use]
+    pub fn new(cap: usize) -> Result<Self> {
+        if cap > MAX_LEN {
+            anyhow::bail!("Bytes buffer capacity is too large");
+        }
+
+        Ok(Self(Vec::with_capacity(cap), cap))
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -17,42 +26,46 @@ impl Bytes {
         self.0.as_mut_slice()
     }
 
+    #[must_use]
     pub fn try_from_str(value: &str, cap: usize) -> Result<Self> {
         if value.len() > cap {
             anyhow::bail!("Bytes buffer is too small for string");
         }
 
-        let mut buf = Self::new(cap);
+        let mut buf = Self::new(cap)?;
         buf.0.extend_from_slice(value.as_bytes());
         Ok(buf)
     }
 
+    #[must_use]
     pub fn try_from_slice(bytes: &[u8], cap: usize) -> Result<Self> {
         if bytes.len() > cap {
             anyhow::bail!("Bytes buffer is too small for slice");
         }
 
-        let mut buf = Self::new(cap);
+        let mut buf = Self::new(cap)?;
         buf.0.extend_from_slice(bytes);
         Ok(buf)
     }
 
+    #[must_use]
     pub fn try_from_i128(value: i128, cap: usize) -> Result<Self> {
         if cap < 16 {
             return Err(anyhow::anyhow!("Buffer is too small for i128"));
         }
 
-        let mut buf = Self::new(cap);
+        let mut buf = Self::new(cap)?;
         buf.0.extend_from_slice(&value.to_ne_bytes());
         Ok(buf)
     }
 
+    #[must_use]
     pub fn try_from_f64(value: f64, cap: usize) -> Result<Self> {
         if cap < 8 {
             return Err(anyhow::anyhow!("Buffer is too small for f64"));
         }
 
-        let mut buf = Self::new(cap);
+        let mut buf = Self::new(cap)?;
         buf.0.extend_from_slice(&value.to_ne_bytes());
         Ok(buf)
     }

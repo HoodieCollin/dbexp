@@ -6,10 +6,14 @@ use anyhow::Result;
 pub struct Text(Bytes);
 
 impl Text {
-    pub fn new(cap: usize) -> Self {
-        Self(Bytes::new(cap))
+    pub const MAX_LEN: usize = Bytes::MAX_LEN;
+
+    #[must_use]
+    pub fn new(cap: usize) -> Result<Self> {
+        Ok(Self(Bytes::new(cap)?))
     }
 
+    #[must_use]
     pub fn try_from_str(value: &str, cap: usize) -> Result<Self> {
         if value.len() > cap as usize {
             anyhow::bail!("Text buffer is too small for string");
@@ -18,6 +22,7 @@ impl Text {
         Ok(Self(Bytes::try_from_slice(value.as_bytes(), cap)?))
     }
 
+    #[must_use]
     pub fn try_from_slice(bytes: &[u8], cap: usize) -> Result<Self> {
         if bytes.len() > cap as usize {
             anyhow::bail!("Text buffer is too small for slice");
@@ -29,6 +34,7 @@ impl Text {
         Ok(Self(Bytes::try_from_slice(bytes, cap)?))
     }
 
+    #[must_use]
     pub fn try_from_i128(value: i128, cap: usize) -> Result<Self> {
         let mut num = itoa::Buffer::new();
         let value = num.format(value);
@@ -37,11 +43,12 @@ impl Text {
             anyhow::bail!("Text buffer is too small for this i128");
         }
 
-        let mut buf = Self::new(cap);
+        let mut buf = Self::new(cap)?;
         buf.try_push_str(value)?;
         Ok(buf)
     }
 
+    #[must_use]
     pub fn try_from_f64(value: f64, cap: usize) -> Result<Self> {
         let mut num = ryu::Buffer::new();
         let value = num.format(value);
@@ -50,7 +57,7 @@ impl Text {
             anyhow::bail!("Text buffer is too small for this f64");
         }
 
-        let mut buf = Self::new(cap);
+        let mut buf = Self::new(cap)?;
         buf.try_push_str(value)?;
         Ok(buf)
     }
