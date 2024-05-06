@@ -5,7 +5,13 @@
 
 [dependencies]
   anyhow      = { workspace = true }
+  base62      = { workspace = true }
+  chrono      = { workspace = true }
+  hcl-rs      = { workspace = true }
   indexmap    = { workspace = true }
+  itoa        = { workspace = true }
   parking_lot = { workspace = true }
   petgraph    = { workspace = true }
+  rand        = { workspace = true }
+  ryu         = { workspace = true }
   serde       = { workspace = true }

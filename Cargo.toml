@@ -6,7 +6,7 @@
 [workspace]
   default-members = [
     ".",
-    "data_types",
+    "core",
     "hcl_queries",
     "hcl_schemas",
     "index_btree",
@@ -15,7 +15,7 @@
     "rest_api",
   ]
   members = [
-    "data_types",
+    "core",
     "hcl_queries",
     "hcl_schemas",
     "index_btree",
@@ -85,7 +85,7 @@
 [dependencies]
   anyhow      = { workspace = true }
   clap        = { version = "4.5.4", features = ["derive"] }
-  data_types  = { path = "./data_types" }
+  core        = { path = "./core" }
   hcl_schemas = { path = "./hcl_schemas" }
   indexmap    = { workspace = true }
   mem_table   = { path = "./mem_table" }

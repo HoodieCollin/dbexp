@@ -5,7 +5,6 @@
 
 [dependencies]
   anyhow     = { workspace = true }
-  data_types = { path = "../data_types" }
   hcl-rs     = { workspace = true }
   mem_table  = { path = "../mem_table" }
   primitives = { path = "../primitives" }

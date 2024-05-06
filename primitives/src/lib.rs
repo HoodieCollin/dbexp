@@ -16,12 +16,28 @@ use indexmap::IndexMap;
 use parking_lot::RwLock;
 
 pub mod byte_encoding;
+pub mod bytes;
+pub mod data;
 pub mod internal_path;
 pub mod internal_string;
+pub mod number;
+pub mod oid;
 pub mod shared_object;
+pub mod text;
+pub mod timestamp;
 
+pub use bytes::Bytes;
+pub use data::{
+    types::{DataType, ExpectedType},
+    values::DataValue,
+};
 pub use internal_path::InternalPath;
 pub use internal_string::InternalString;
+pub use number::Number;
+pub use oid::{O16, O32, O64};
+pub use shared_object::SharedObject;
+pub use text::Text;
+pub use timestamp::Timestamp;
 
 /// ## !!! WARNING !!!
 ///

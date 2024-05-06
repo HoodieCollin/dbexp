@@ -5,7 +5,6 @@
 
 [dependencies]
   anyhow      = { workspace = true }
-  data_types  = { path = "../data_types" }
   im          = { workspace = true }
   indexmap    = { workspace = true }
   memmap2     = { workspace = true }
