@@ -1,6 +1,13 @@
 [package]
-name = "hcl_schemas"
-version = "0.1.0"
-edition = "2021"
+  edition = "2021"
+  name    = "hcl_schemas"
+  version = "0.1.0"
 
 [dependencies]
+  anyhow     = { workspace = true }
+  data_types = { path = "../data_types" }
+  hcl-rs     = { workspace = true }
+  mem_table  = { path = "../mem_table" }
+  primitives = { path = "../primitives" }
+  serde      = { workspace = true }
+  thiserror  = { workspace = true }

@@ -83,8 +83,10 @@
       version = "0.12"
 
 [dependencies]
-  anyhow     = { workspace = true }
-  clap       = { version = "4.5.4", features = ["derive"] }
-  data_types = { path = "./data_types" }
-  mem_table  = { path = "./mem_table" }
-  primitives = { path = "./primitives" }
+  anyhow      = { workspace = true }
+  clap        = { version = "4.5.4", features = ["derive"] }
+  data_types  = { path = "./data_types" }
+  hcl_schemas = { path = "./hcl_schemas" }
+  indexmap    = { workspace = true }
+  mem_table   = { path = "./mem_table" }
+  primitives  = { path = "./primitives" }
