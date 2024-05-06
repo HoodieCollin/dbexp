@@ -4,13 +4,13 @@ use anyhow::Result;
 
 use primitives::{byte_encoding::IntoBytes, shared_object::SharedObject};
 
-use crate::object_ids::{RecordId, TableId};
-
-use self::{
-    block::{Block, BlockConfig},
-    inner::StoreInner,
+use crate::{
+    block::{self, Block, BlockConfig},
+    object_ids::{RecordId, TableId},
     slot::{SlotHandle, SlotTuple},
 };
+
+use self::inner::StoreInner;
 
 pub use self::{
     config::StoreConfig,
@@ -19,13 +19,11 @@ pub use self::{
     result::{BlockCreationError, InsertError, StoreError},
 };
 
-pub mod block;
 pub mod config;
 pub mod inner;
 pub mod meta;
 pub mod record_store;
 pub mod result;
-pub mod slot;
 
 #[derive(Debug)]
 pub enum InsertState<T: 'static> {
@@ -270,10 +268,8 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Store<T> {
 #[allow(dead_code)]
 #[cfg(test)]
 mod test {
+    use primitives::{byte_encoding::FromBytes, O64};
     use std::iter;
-
-    use data_types::oid;
-    use primitives::byte_encoding::FromBytes;
 
     use super::*;
 
@@ -315,8 +311,8 @@ mod test {
     fn mvp() -> Result<()> {
         #[derive(Debug)]
         struct Item {
-            pub a: oid::O64,
-            pub b: oid::O64,
+            pub a: O64,
+            pub b: O64,
         }
 
         let table = TableId::new();
@@ -334,8 +330,8 @@ mod test {
                     (
                         RecordId::new(table),
                         Item {
-                            a: oid::O64::new(),
-                            b: oid::O64::new(),
+                            a: O64::new(),
+                            b: O64::new(),
                         },
                     )
                 })

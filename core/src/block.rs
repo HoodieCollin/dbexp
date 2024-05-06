@@ -1,19 +1,17 @@
 use std::{fs::File, sync::Arc};
 
 use anyhow::Result;
-use data_types::oid;
-use primitives::shared_object::SharedObject;
+use primitives::{shared_object::SharedObject, O64};
 
 use crate::{
+    block::inner::BlockInner,
     object_ids::{RecordId, TableId},
-    store::{
-        block::inner::BlockInner,
-        result::InsertError,
-        slot::{SlotHandle, SlotTuple},
-    },
+    slot::{SlotHandle, SlotTuple},
+    store::result::InsertError,
 };
 
-pub use crate::store::block::{config::BlockConfig, meta::BlockMeta};
+pub use config::BlockConfig;
+pub use meta::BlockMeta;
 
 pub mod config;
 pub mod inner;
@@ -30,7 +28,7 @@ pub enum InsertState<T: 'static> {
 
 pub struct Block<T: 'static> {
     idx: usize,
-    pub(in crate::store) inner: SharedObject<BlockInner<T>>,
+    pub(crate) inner: SharedObject<BlockInner<T>>,
 }
 
 impl<T> Clone for Block<T> {
@@ -146,7 +144,7 @@ impl<T> Block<T> {
 
         inner.index_by_record.insert(thin_record_id, idx);
 
-        let gen = oid::O64::new();
+        let gen = O64::new();
         let mut new_tail = None;
 
         unsafe {
@@ -266,7 +264,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Block<T> {
             .take_while(|slot| {
                 let slot = slot.read();
 
-                if slot.0 == oid::O64::SENTINEL {
+                if slot.0 == O64::SENTINEL {
                     false
                 } else {
                     slots.push(unsafe { slot.1.as_ref() });

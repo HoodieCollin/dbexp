@@ -4,13 +4,8 @@
   version = "0.1.0"
 
 [dependencies]
-  anyhow      = { workspace = true }
-  im          = { workspace = true }
-  indexmap    = { workspace = true }
-  memmap2     = { workspace = true }
-  parking_lot = { workspace = true }
-  petgraph    = { workspace = true }
-  primitives  = { path = "../primitives" }
-  rayon       = { workspace = true }
-  serde       = { workspace = true }
-  thiserror   = { workspace = true }
+  anyhow     = { workspace = true }
+  indexmap   = { workspace = true }
+  primitives = { path = "../primitives" }
+  serde      = { workspace = true }
+  thiserror  = { workspace = true }

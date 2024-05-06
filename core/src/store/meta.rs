@@ -6,10 +6,7 @@ use primitives::{
     impl_access_bytes_for_into_bytes_type,
 };
 
-use crate::{
-    object_ids::TableId,
-    store::{block::Block, config::StoreConfig},
-};
+use crate::{block::Block, object_ids::TableId, store::config::StoreConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StoreMeta {

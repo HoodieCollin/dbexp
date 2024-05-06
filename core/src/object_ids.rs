@@ -1,9 +1,9 @@
 use anyhow::Result;
-use data_types::{
+use primitives::byte_encoding::{AccessBytes, ScalarFromBytes};
+use primitives::{
     oid::{self},
     ExpectedType,
 };
-use primitives::byte_encoding::{AccessBytes, ScalarFromBytes};
 use serde::{Deserialize, Serialize};
 
 #[derive(

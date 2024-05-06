@@ -1,4 +1,4 @@
-use crate::{object_ids::RecordId, store::slot::SlotTuple};
+use crate::{object_ids::RecordId, slot::SlotTuple};
 
 #[derive(thiserror::Error)]
 pub enum InsertError<T> {

@@ -4,12 +4,11 @@
   version = "0.1.0"
 
 [dependencies]
-  anyhow     = { workspace = true }
-  base62     = { workspace = true }
-  chrono     = { workspace = true }
-  hcl-rs     = { workspace = true }
-  itoa       = { workspace = true }
-  primitives = { path = "../primitives" }
-  rand       = { workspace = true }
-  ryu        = { workspace = true }
-  serde      = { workspace = true }
+  anyhow      = { workspace = true }
+  indexmap    = { workspace = true }
+  memmap2     = { workspace = true }
+  parking_lot = { workspace = true }
+  petgraph    = { workspace = true }
+  primitives  = { path = "../primitives" }
+  serde       = { workspace = true }
+  thiserror   = { workspace = true }

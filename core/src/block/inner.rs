@@ -1,25 +1,25 @@
 use std::{alloc::Layout, fs::File, iter, os::unix::fs::FileExt, ptr::NonNull, sync::Arc};
 
 use anyhow::Result;
-use data_types::oid;
 use indexmap::IndexMap;
 use memmap2::{MmapMut, MmapOptions};
 use parking_lot::RwLock;
-use primitives::byte_encoding::{FromBytes, IntoBytes};
+use primitives::{
+    byte_encoding::{FromBytes, IntoBytes},
+    O64,
+};
 
 use crate::{
+    block::{BlockConfig, BlockMeta},
     object_ids::{TableId, ThinRecordId},
-    store::{
-        block::{BlockConfig, BlockMeta},
-        slot::SlotData,
-    },
+    slot::SlotData,
 };
 
 pub struct BlockInner<T: 'static> {
-    pub(in crate::store) meta: BlockMeta,
-    pub(in crate::store) data: MmapMut,
-    pub(in crate::store) slots_by_index: Vec<RwLock<(Option<oid::O64>, NonNull<SlotData<T>>)>>,
-    pub(in crate::store) index_by_record: IndexMap<ThinRecordId, usize>,
+    pub(crate) meta: BlockMeta,
+    data: MmapMut,
+    pub(crate) slots_by_index: Vec<RwLock<(Option<O64>, NonNull<SlotData<T>>)>>,
+    pub(crate) index_by_record: IndexMap<ThinRecordId, usize>,
 }
 
 impl<T> Drop for BlockInner<T> {
@@ -81,7 +81,7 @@ impl<T> BlockInner<T> {
 
                 unsafe {
                     let ptr = data.as_ptr().add(offset) as *mut SlotData<T>;
-                    RwLock::new((oid::O64::SENTINEL, NonNull::new_unchecked(ptr)))
+                    RwLock::new((O64::SENTINEL, NonNull::new_unchecked(ptr)))
                 }
             })
             .take(block_capacity)
@@ -113,7 +113,7 @@ impl<T> BlockInner<T> {
 
                 unsafe {
                     let ptr = data.as_ptr().add(offset) as *mut SlotData<T>;
-                    RwLock::new((oid::O64::SENTINEL, NonNull::new_unchecked(ptr)))
+                    RwLock::new((O64::SENTINEL, NonNull::new_unchecked(ptr)))
                 }
             })
             .take(block_capacity)

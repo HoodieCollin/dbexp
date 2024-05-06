@@ -1,10 +1,10 @@
 use std::mem::MaybeUninit;
 
 use anyhow::Result;
-use data_types::oid;
 use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLockReadGuard, RwLockWriteGuard,
 };
+use primitives::oid;
 
 use super::block::Block;
 use crate::object_ids::{RecordId, ThinRecordId};

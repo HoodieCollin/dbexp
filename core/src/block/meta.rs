@@ -4,10 +4,7 @@ use primitives::{
     impl_access_bytes_for_into_bytes_type,
 };
 
-use crate::{
-    object_ids::TableId,
-    store::{block::config::BlockConfig, slot::GAP_HEAD},
-};
+use crate::{block::config::BlockConfig, object_ids::TableId, slot::GAP_HEAD};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockMeta {
@@ -102,7 +99,7 @@ impl BlockMeta {
     }
 
     #[must_use]
-    pub(in crate::store) fn take_next_block_idx(&mut self) -> Option<usize> {
+    pub(crate) fn take_next_block_idx(&mut self) -> Option<usize> {
         let idx = self.next_block;
 
         if idx == GAP_HEAD {

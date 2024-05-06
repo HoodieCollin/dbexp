@@ -1,11 +1,14 @@
 use std::{iter, num::NonZeroUsize, ops::RangeBounds};
 
 use anyhow::Result;
-use data_types::DataValue;
+use primitives::DataValue;
 
-use crate::object_ids::{RecordId, TableId};
+use crate::{
+    object_ids::{RecordId, TableId},
+    slot::SlotHandle,
+};
 
-use super::{slot::SlotHandle, InsertError, InsertState, Store, StoreConfig, StoreError};
+use super::{InsertError, InsertState, Store, StoreConfig, StoreError};
 
 pub const MAX_COLUMNS: usize = 32;
 

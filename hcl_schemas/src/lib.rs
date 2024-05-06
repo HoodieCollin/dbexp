@@ -1,9 +1,9 @@
 use anyhow::Result;
-use data_types::{bytes::Bytes, text::Text, DataType};
 use hcl::{
     eval::{Context, Evaluate},
     Block, Body, Expression,
 };
+use primitives::{bytes::Bytes, text::Text, DataType};
 
 use primitives::InternalString;
 
