@@ -18,6 +18,7 @@ use parking_lot::RwLock;
 pub mod byte_encoding;
 pub mod bytes;
 pub mod data;
+pub mod idx;
 pub mod internal_path;
 pub mod internal_string;
 pub mod number;
@@ -31,6 +32,7 @@ pub use data::{
     types::{DataType, ExpectedType},
     values::DataValue,
 };
+pub use idx::Idx;
 pub use internal_path::InternalPath;
 pub use internal_string::InternalString;
 pub use number::Number;
