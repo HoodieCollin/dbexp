@@ -1,6 +1,7 @@
 // #![allow(incomplete_features)]
 #![feature(lazy_cell)]
 #![feature(allocator_api)]
+#![feature(os_str_display)]
 #![feature(generic_const_exprs)]
 
 use std::{
@@ -15,7 +16,12 @@ use indexmap::IndexMap;
 use parking_lot::RwLock;
 
 pub mod byte_encoding;
+pub mod internal_path;
+pub mod internal_string;
 pub mod shared_object;
+
+pub use internal_path::InternalPath;
+pub use internal_string::InternalString;
 
 /// ## !!! WARNING !!!
 ///

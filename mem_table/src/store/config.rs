@@ -3,10 +3,8 @@ use std::{num::NonZeroUsize, path::Path};
 use anyhow::Result;
 use primitives::{
     byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
-    impl_access_bytes_for_into_bytes_type,
+    impl_access_bytes_for_into_bytes_type, InternalPath,
 };
-
-use crate::internal_path::InternalPath;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StoreConfig {

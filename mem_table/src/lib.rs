@@ -1,20 +1,18 @@
 // #![allow(incomplete_features)]
-#![feature(lazy_cell)]
-#![feature(allocator_api)]
 #![feature(os_str_display)]
 #![feature(generic_const_exprs)]
 
-use std::{mem::MaybeUninit, num::NonZeroUsize, ops::RangeBounds, path::Path};
+use std::{any::Any, mem::MaybeUninit, num::NonZeroUsize, ops::RangeBounds, path::Path};
 
 use anyhow::Result;
-use data_types::{DataType, DataValue, ExpectedType};
+use data_types::{DataValue, ExpectedType};
 use indexmap::IndexMap;
-use internal_path::InternalPath;
 use object_ids::TableId;
 use primitives::{
     byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
     impl_access_bytes_for_into_bytes_type,
     shared_object::SharedObject,
+    InternalPath, InternalString,
 };
 use store::{
     record_store::{ColumnIndexes, RecordSlotHandle, MAX_COLUMNS},
@@ -22,7 +20,6 @@ use store::{
     RecordStore, Store, StoreConfig, StoreError,
 };
 
-pub mod internal_path;
 pub mod object_ids;
 pub mod store;
 
@@ -111,11 +108,11 @@ impl std::fmt::Debug for DataConfig {
 }
 
 impl DataConfig {
-    pub fn new(data_type: DataType) -> Self {
+    pub fn new(data_type: impl Into<ExpectedType>) -> Self {
         Self {
             initial_block_count: None,
             block_capacity: None,
-            data_type: ExpectedType::new(data_type),
+            data_type: data_type.into(),
         }
     }
 
@@ -131,6 +128,10 @@ impl DataConfig {
             block_capacity,
             persistance: table_config.persistance,
         }
+    }
+
+    pub fn try_new_value<V: Any>(&self, value: V) -> Result<DataValue> {
+        DataValue::try_from_any(self.data_type, value)
     }
 
     // TODO: support custom config
@@ -345,10 +346,15 @@ pub struct Table {
     config: TableConfig,
     records: RecordStore,
     columns: SharedObject<IndexMap<usize, Store<DataValue>>>,
+    columns_by_name: IndexMap<InternalString, usize>,
 }
 
 impl Table {
-    pub fn new(id: TableId, config: TableConfig) -> Result<Self> {
+    pub fn new(
+        id: TableId,
+        config: TableConfig,
+        name_mapping: Option<IndexMap<InternalString, usize>>,
+    ) -> Result<Self> {
         let column_count = config.columns.len();
         let columns = IndexMap::with_capacity(column_count);
         let records = RecordStore::new(Some(id), Some(config.into()), column_count)?;
@@ -358,7 +364,12 @@ impl Table {
             config,
             records,
             columns: SharedObject::new(columns),
+            columns_by_name: name_mapping.unwrap_or_default(),
         })
+    }
+
+    pub fn config(&self) -> &TableConfig {
+        &self.config
     }
 
     pub fn get_column_store(&self, idx: usize) -> Result<Store<DataValue>> {
@@ -387,6 +398,66 @@ impl Table {
         columns.insert(idx, store.clone());
 
         Ok(store)
+    }
+
+    pub fn get_column_by_name(&self, name: impl AsRef<str>) -> Option<Store<DataValue>> {
+        let name = InternalString::new(name.as_ref()).ok()?;
+        let idx = *self.columns_by_name.get(&name)?;
+
+        self.get_column_store(idx).ok()
+    }
+
+    pub fn get_column_stores(
+        &self,
+        indices: impl Into<Vec<usize>>,
+    ) -> Result<Vec<Store<DataValue>>> {
+        let mut indices: Vec<usize> = indices.into();
+        indices.dedup();
+        indices.sort_unstable();
+
+        if let Some(&idx) = indices.last() {
+            if idx >= self.config.columns.len() {
+                anyhow::bail!("column index out of bounds");
+            }
+        }
+
+        let count = indices.len();
+
+        let mut stores = Vec::with_capacity(count);
+        let mut missing = Vec::with_capacity(count);
+
+        let columns = self.columns.upgradable();
+
+        for idx in indices {
+            if let Some(store) = columns.get(&idx) {
+                stores.push(store.clone());
+            } else {
+                missing.push(idx);
+            }
+        }
+
+        if missing.is_empty() {
+            return Ok(stores);
+        }
+
+        let mut columns = columns.upgrade();
+
+        for idx in missing {
+            let store = Store::new(
+                Some(self.id),
+                Some(unsafe {
+                    self.config
+                        .columns
+                        .get_unchecked(idx)
+                        .into_store_config(&self.config)
+                }),
+            )?;
+
+            columns.insert(idx, store.clone());
+            stores.push(store);
+        }
+
+        Ok(stores)
     }
 
     pub fn get_column_store_range(
@@ -628,6 +699,7 @@ impl Table {
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
+    use data_types::DataType;
 
     use super::*;
 
@@ -650,7 +722,7 @@ mod tests {
         ];
 
         let table_config = TableConfig::new(&columns)?;
-        let table = Table::new(TableId::new(), table_config)?;
+        let table = Table::new(TableId::new(), table_config, None)?;
 
         assert_eq!(table.config, table_config);
 
@@ -674,7 +746,7 @@ mod tests {
         ];
 
         let table_config = TableConfig::new(&columns)?;
-        let table = Table::new(TableId::new(), table_config)?;
+        let table = Table::new(TableId::new(), table_config, None)?;
 
         assert_eq!(table.config, table_config);
 
