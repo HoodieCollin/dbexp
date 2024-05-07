@@ -5,6 +5,7 @@
 
 [dependencies]
   anyhow     = { workspace = true }
+  dbexp      = { package = "core", path = "../core" }
   indexmap   = { workspace = true }
   primitives = { path = "../primitives" }
   serde      = { workspace = true }
