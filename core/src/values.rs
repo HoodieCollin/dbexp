@@ -2,13 +2,16 @@
 
 use anyhow::Result;
 
-use crate::{
-    number::Builtin, Bytes, DataType, ExpectedType, Number, Text, Timestamp, O16, O32, O64,
+use primitives::{
+    byte_encoding::IntoBytes, number::Builtin, Bytes, DataType, ExpectedType, Number, Text,
+    Timestamp, O16, O32, O64,
 };
+
+use crate::slot::SlotIndirection;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DataValue {
-    Nil(ExpectedType),
+    Indirection(SlotIndirection),
     O16(O16),
     O32(O32),
     O64(O64),
@@ -22,17 +25,196 @@ pub enum DataValue {
 unsafe impl Send for DataValue {}
 unsafe impl Sync for DataValue {}
 
-impl DataValue {
-    pub fn is_nil(&self) -> bool {
-        match self {
-            DataValue::Nil(_) => true,
-            _ => false,
+impl PartialOrd<Option<DataValue>> for DataValue {
+    fn partial_cmp(&self, other: &Option<DataValue>) -> Option<std::cmp::Ordering> {
+        match other {
+            Some(other) => self.partial_cmp(other),
+            None => Some(std::cmp::Ordering::Greater),
         }
     }
+}
 
+impl PartialOrd<DataValue> for Option<DataValue> {
+    fn partial_cmp(&self, other: &DataValue) -> Option<std::cmp::Ordering> {
+        match self {
+            Some(a) => a.partial_cmp(other),
+            None => Some(std::cmp::Ordering::Less),
+        }
+    }
+}
+
+impl PartialEq<Option<DataValue>> for DataValue {
+    fn eq(&self, other: &Option<DataValue>) -> bool {
+        match other {
+            Some(other) => self == other,
+            None => false,
+        }
+    }
+}
+
+impl PartialEq<DataValue> for Option<DataValue> {
+    fn eq(&self, other: &DataValue) -> bool {
+        match self {
+            Some(a) => a == other,
+            None => false,
+        }
+    }
+}
+
+impl From<&DataValue> for ExpectedType {
+    fn from(val: &DataValue) -> Self {
+        val.get_type()
+    }
+}
+
+impl From<SlotIndirection> for DataValue {
+    fn from(value: SlotIndirection) -> Self {
+        DataValue::Indirection(value)
+    }
+}
+
+impl From<O16> for DataValue {
+    fn from(value: O16) -> Self {
+        DataValue::O16(value)
+    }
+}
+
+impl From<O32> for DataValue {
+    fn from(value: O32) -> Self {
+        DataValue::O32(value)
+    }
+}
+
+impl From<O64> for DataValue {
+    fn from(value: O64) -> Self {
+        DataValue::O64(value)
+    }
+}
+
+impl From<bool> for DataValue {
+    fn from(value: bool) -> Self {
+        DataValue::Bool(value)
+    }
+}
+
+impl From<u8> for DataValue {
+    fn from(value: u8) -> Self {
+        DataValue::Number(Number::try_from_builtin(value).expect("u8 always fits"))
+    }
+}
+
+impl From<u16> for DataValue {
+    fn from(value: u16) -> Self {
+        DataValue::Number(Number::try_from_builtin(value).expect("u16 always fits"))
+    }
+}
+
+impl From<u32> for DataValue {
+    fn from(value: u32) -> Self {
+        DataValue::Number(Number::try_from_builtin(value).expect("u32 always fits"))
+    }
+}
+
+impl From<u64> for DataValue {
+    fn from(value: u64) -> Self {
+        DataValue::Number(Number::try_from_builtin(value).expect("u64 always fits"))
+    }
+}
+
+impl TryFrom<u128> for DataValue {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u128) -> Result<Self> {
+        Ok(DataValue::Number(Number::try_from_builtin(value)?))
+    }
+}
+
+impl From<usize> for DataValue {
+    fn from(value: usize) -> Self {
+        DataValue::Number(Number::try_from_builtin(value).expect("usize always fits"))
+    }
+}
+
+impl From<i8> for DataValue {
+    fn from(value: i8) -> Self {
+        DataValue::Number(Number::try_from_builtin(value).expect("i8 always fits"))
+    }
+}
+
+impl From<i16> for DataValue {
+    fn from(value: i16) -> Self {
+        DataValue::Number(Number::try_from_builtin(value).expect("i16 always fits"))
+    }
+}
+
+impl From<i32> for DataValue {
+    fn from(value: i32) -> Self {
+        DataValue::Number(Number::try_from_builtin(value).expect("i32 always fits"))
+    }
+}
+
+impl From<i64> for DataValue {
+    fn from(value: i64) -> Self {
+        DataValue::Number(Number::try_from_builtin(value).expect("i64 always fits"))
+    }
+}
+
+impl From<i128> for DataValue {
+    fn from(value: i128) -> Self {
+        DataValue::Number(Number::try_from_builtin(value).expect("i128 always fits"))
+    }
+}
+
+impl From<isize> for DataValue {
+    fn from(value: isize) -> Self {
+        DataValue::Number(Number::try_from_builtin(value).expect("isize always fits"))
+    }
+}
+
+impl From<Number> for DataValue {
+    fn from(value: Number) -> Self {
+        DataValue::Number(value)
+    }
+}
+
+impl TryFrom<f32> for DataValue {
+    type Error = anyhow::Error;
+
+    fn try_from(value: f32) -> Result<Self> {
+        Ok(DataValue::Number(Number::try_from_builtin(value)?))
+    }
+}
+
+impl TryFrom<f64> for DataValue {
+    type Error = anyhow::Error;
+
+    fn try_from(value: f64) -> Result<Self> {
+        Ok(DataValue::Number(Number::try_from_builtin(value)?))
+    }
+}
+
+impl From<Timestamp> for DataValue {
+    fn from(value: Timestamp) -> Self {
+        DataValue::Timestamp(value)
+    }
+}
+
+impl From<Text> for DataValue {
+    fn from(value: Text) -> Self {
+        DataValue::Text(value)
+    }
+}
+
+impl From<Bytes> for DataValue {
+    fn from(value: Bytes) -> Self {
+        DataValue::Bytes(value)
+    }
+}
+
+impl DataValue {
     pub fn get_type(&self) -> ExpectedType {
         match self {
-            DataValue::Nil(expected) => *expected,
+            DataValue::Indirection(x) => x.column().kind(),
             DataValue::O16(_) => ExpectedType::new(DataType::O16),
             DataValue::O32(_) => ExpectedType::new(DataType::O32),
             DataValue::O64(_) => ExpectedType::new(DataType::O64),
@@ -49,21 +231,10 @@ impl DataValue {
         use std::ptr;
 
         match self {
-            DataValue::Nil(ty) => {
-                let _ = ty.write_zeros(dest)?;
-                return Ok(());
+            DataValue::Indirection(val) => {
+                let arr = val.into_bytes()?;
+                dest.copy_from_slice(&arr);
             }
-            _ => {}
-        };
-
-        unsafe {
-            ptr::write(dest.as_mut_ptr(), 1u8);
-        }
-
-        let dest = &mut dest[1..];
-
-        match self {
-            DataValue::Nil(_) => unreachable!(),
             DataValue::O16(val) => {
                 let arr = val.into_array();
                 dest.copy_from_slice(&arr);
@@ -451,261 +622,3 @@ impl DataValue {
         }
     }
 }
-
-impl From<O16> for DataValue {
-    fn from(value: O16) -> Self {
-        DataValue::O16(value)
-    }
-}
-
-impl From<O32> for DataValue {
-    fn from(value: O32) -> Self {
-        DataValue::O32(value)
-    }
-}
-
-impl From<O64> for DataValue {
-    fn from(value: O64) -> Self {
-        DataValue::O64(value)
-    }
-}
-
-impl From<bool> for DataValue {
-    fn from(value: bool) -> Self {
-        DataValue::Bool(value)
-    }
-}
-
-impl From<u8> for DataValue {
-    fn from(value: u8) -> Self {
-        DataValue::Number(Number::try_from_builtin(value).expect("u8 always fits"))
-    }
-}
-
-impl From<u16> for DataValue {
-    fn from(value: u16) -> Self {
-        DataValue::Number(Number::try_from_builtin(value).expect("u16 always fits"))
-    }
-}
-
-impl From<u32> for DataValue {
-    fn from(value: u32) -> Self {
-        DataValue::Number(Number::try_from_builtin(value).expect("u32 always fits"))
-    }
-}
-
-impl From<u64> for DataValue {
-    fn from(value: u64) -> Self {
-        DataValue::Number(Number::try_from_builtin(value).expect("u64 always fits"))
-    }
-}
-
-impl TryFrom<u128> for DataValue {
-    type Error = anyhow::Error;
-
-    fn try_from(value: u128) -> Result<Self> {
-        Ok(DataValue::Number(Number::try_from_builtin(value)?))
-    }
-}
-
-impl From<usize> for DataValue {
-    fn from(value: usize) -> Self {
-        DataValue::Number(Number::try_from_builtin(value).expect("usize always fits"))
-    }
-}
-
-impl From<i8> for DataValue {
-    fn from(value: i8) -> Self {
-        DataValue::Number(Number::try_from_builtin(value).expect("i8 always fits"))
-    }
-}
-
-impl From<i16> for DataValue {
-    fn from(value: i16) -> Self {
-        DataValue::Number(Number::try_from_builtin(value).expect("i16 always fits"))
-    }
-}
-
-impl From<i32> for DataValue {
-    fn from(value: i32) -> Self {
-        DataValue::Number(Number::try_from_builtin(value).expect("i32 always fits"))
-    }
-}
-
-impl From<i64> for DataValue {
-    fn from(value: i64) -> Self {
-        DataValue::Number(Number::try_from_builtin(value).expect("i64 always fits"))
-    }
-}
-
-impl From<i128> for DataValue {
-    fn from(value: i128) -> Self {
-        DataValue::Number(Number::try_from_builtin(value).expect("i128 always fits"))
-    }
-}
-
-impl From<isize> for DataValue {
-    fn from(value: isize) -> Self {
-        DataValue::Number(Number::try_from_builtin(value).expect("isize always fits"))
-    }
-}
-
-impl From<Number> for DataValue {
-    fn from(value: Number) -> Self {
-        DataValue::Number(value)
-    }
-}
-
-impl TryFrom<f32> for DataValue {
-    type Error = anyhow::Error;
-
-    fn try_from(value: f32) -> Result<Self> {
-        Ok(DataValue::Number(Number::try_from_builtin(value)?))
-    }
-}
-
-impl TryFrom<f64> for DataValue {
-    type Error = anyhow::Error;
-
-    fn try_from(value: f64) -> Result<Self> {
-        Ok(DataValue::Number(Number::try_from_builtin(value)?))
-    }
-}
-
-impl From<Timestamp> for DataValue {
-    fn from(value: Timestamp) -> Self {
-        DataValue::Timestamp(value)
-    }
-}
-
-impl From<Text> for DataValue {
-    fn from(value: Text) -> Self {
-        DataValue::Text(value)
-    }
-}
-
-impl From<Bytes> for DataValue {
-    fn from(value: Bytes) -> Self {
-        DataValue::Bytes(value)
-    }
-}
-
-// #[cfg(test)]
-// mod test {
-//     use super::*;
-//     use IntSize::{X16, X8};
-
-//     #[test]
-//     fn test_casting() -> Result<()> {
-//         let alloc = Arc::new(Bump::new());
-
-//         let value = DataValue::try_integer_from_number(42i8)?;
-//         let sized_up = value.try_cast(DataType::Integer(X16), &alloc)?;
-
-//         match sized_up {
-//             DataValue::Integer(i) => {
-//                 assert_eq!(i.size(), X16);
-//                 assert_eq!(i.as_i128(), 42);
-//             }
-//             _ => anyhow::bail!("expected integer"),
-//         }
-
-//         let value = DataValue::try_integer_from_number(42i64)?;
-//         let sized_down = value.try_cast(DataType::Integer(X8), &alloc)?;
-
-//         match sized_down {
-//             DataValue::Integer(i) => {
-//                 assert_eq!(i.size(), X8);
-//                 assert_eq!(i.as_i128(), 42);
-//             }
-//             _ => anyhow::bail!("expected integer"),
-//         }
-
-//         Ok(())
-//     }
-
-//     #[test]
-//     fn test_from_any() -> Result<()> {
-//         let alloc = Arc::new(Bump::new());
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42i8, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42i8)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42i16, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42i16)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42i32, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42i32)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42i64, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42i64)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42i128, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42i128)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42isize, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42isize)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42u8, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42u8)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42u16, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42u16)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42u32, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42u32)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42u64, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42u64)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42u128, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42u128)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &42usize, &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin(42usize)?)
-//         );
-
-//         let value = DataValue::try_from_any(DataType::Integer(X8), &"42", &alloc)?;
-//         assert_eq!(
-//             value,
-//             DataValue::Number(Number::try_from_builtin("42")?)
-//         );
-
-//         Ok(())
-//     }
-// }

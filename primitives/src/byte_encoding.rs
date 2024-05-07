@@ -243,6 +243,11 @@ pub struct ByteEncoder<'a> {
 }
 
 impl ByteEncoder<'_> {
+    pub fn skip(&mut self, n: usize) -> Result<()> {
+        self.cursor.set_position(self.cursor.position() + n as u64);
+        Ok(())
+    }
+
     pub fn encode<T: 'static + AccessBytes>(&mut self, value: T) -> Result<()> {
         value.access_bytes(|bytes| Ok(self.cursor.write_all(bytes)?))
     }
@@ -361,6 +366,11 @@ impl<'a> ByteDecoder<'a> {
         Self {
             cursor: Cursor::new(bytes),
         }
+    }
+
+    pub fn skip(&mut self, n: usize) -> Result<()> {
+        self.cursor.set_position(self.cursor.position() + n as u64);
+        Ok(())
     }
 
     pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {

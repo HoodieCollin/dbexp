@@ -29,10 +29,7 @@ pub mod text;
 pub mod timestamp;
 
 pub use bytes::Bytes;
-pub use data::{
-    types::{DataType, ExpectedType},
-    values::DataValue,
-};
+pub use data::{DataType, ExpectedType};
 pub use idx::{Idx, ThinIdx};
 pub use internal_path::InternalPath;
 pub use internal_string::InternalString;

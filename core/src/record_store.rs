@@ -1,88 +1,20 @@
 use std::{iter, num::NonZeroUsize, ops::RangeBounds};
 
 use anyhow::Result;
-use primitives::{DataValue, Idx, ThinIdx};
 
 use crate::{
+    column_indices::{ColumnIndices, MAX_COLUMNS},
     object_ids::{RecordId, TableId},
     slot::SlotHandle,
     store::{InsertError, InsertState, Store, StoreConfig, StoreError},
 };
 
-pub const MAX_COLUMNS: usize = 32;
-
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct CellIndex {
-    pub block: ThinIdx,
-    pub row: Idx,
-}
-
-impl std::fmt::Debug for CellIndex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CellIndex")
-            .field("block", &self.block)
-            .field("row", &self.row)
-            .finish()
-    }
-}
-
-impl From<SlotHandle<DataValue>> for CellIndex {
-    fn from(handle: SlotHandle<DataValue>) -> Self {
-        Self {
-            block: handle.block.index(),
-            row: handle.idx,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct ColumnIndexes(NonZeroUsize, [Option<CellIndex>; MAX_COLUMNS]);
-
-impl std::fmt::Debug for ColumnIndexes {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut d = f.debug_list();
-
-        for i in 0..self.0.get() {
-            if let Some(cell) = self.1[i] {
-                d.entry(&cell);
-            } else {
-                d.entry(&"None");
-            }
-        }
-
-        d.finish()
-    }
-}
-
-impl ColumnIndexes {
-    pub const INVALID: Self = Self(NonZeroUsize::MAX, [None; MAX_COLUMNS]);
-
-    pub fn new(count: NonZeroUsize) -> Self {
-        Self(count, [None; MAX_COLUMNS])
-    }
-
-    #[must_use]
-    pub fn replace(&mut self, column: usize, value: CellIndex) -> Result<()> {
-        if column >= self.0.get() {
-            anyhow::bail!("column index out of bounds");
-        }
-
-        unsafe {
-            self.1.get_unchecked_mut(column).replace(value);
-        }
-
-        Ok(())
-    }
-}
-
-pub type RecordStoreError = StoreError<ColumnIndexes>;
-pub type RecordSlotHandle = SlotHandle<ColumnIndexes>;
+pub type RecordStoreError = StoreError<ColumnIndices>;
+pub type RecordSlotHandle = SlotHandle<ColumnIndices>;
 
 #[derive(Debug, Clone)]
 pub struct RecordStore {
-    store: Store<ColumnIndexes>,
+    store: Store<ColumnIndices>,
     table: TableId,
     columns: NonZeroUsize,
 }
@@ -121,7 +53,7 @@ impl RecordStore {
 
         let store = self.store.write();
         let record = RecordId::new(store.next_available_index(), table);
-        let handle = self.store.insert_one(None, ColumnIndexes::new(columns))?;
+        let handle = self.store.insert_one(None, ColumnIndices::new(columns))?;
 
         Ok((record, handle))
     }
@@ -140,7 +72,7 @@ impl RecordStore {
 
         match self
             .store
-            .insert(vec![(None, ColumnIndexes::new(columns)); count])?
+            .insert(vec![(None, ColumnIndices::new(columns)); count])?
         {
             InsertState::Done(handles) => Ok(handles
                 .into_iter()
@@ -204,7 +136,7 @@ impl RecordStore {
             .into_iter()
             .enumerate()
             .map(|(index, values)| {
-                let columns = ColumnIndexes::new(columns);
+                let columns = ColumnIndices::new(columns);
 
                 (index, columns, values)
             })
@@ -225,8 +157,8 @@ impl RecordStore {
             .map(|((index, values), h)| (index, RecordId::new(h.idx.into_thin(), table), h, values))
             .collect::<Vec<_>>()),
             InsertState::Partial { errors, handles } => {
-                fn new_invalid_entry<T>() -> (usize, ColumnIndexes, Vec<T>) {
-                    (usize::MAX, ColumnIndexes::INVALID, vec![])
+                fn new_invalid_entry<T>() -> (usize, ColumnIndices, Vec<T>) {
+                    (usize::MAX, ColumnIndices::INVALID, vec![])
                 }
 
                 let mut tuples = {

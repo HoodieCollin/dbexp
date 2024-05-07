@@ -3,6 +3,7 @@
     "btreemap",
     "bumpalo",
     "chrono",
+    "dbexp",
     "dealloc",
     "downgradable",
     "graphmap",
@@ -19,7 +20,8 @@
     "sharded",
     "Strftime",
     "thiserror",
-    "uninit"
+    "uninit",
+    "varlen"
   ],
   "[rust]": {
     "editor.indentSize": "tabSize",
