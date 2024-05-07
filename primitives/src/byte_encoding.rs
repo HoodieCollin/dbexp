@@ -76,25 +76,25 @@ impl AccessBytes for Vec<u8> {
     }
 }
 
-impl AccessBytes for Option<Vec<u8>> {
-    fn access_bytes<F>(&self, mut f: F) -> Result<()>
+impl<T: 'static + AccessBytes> AccessBytes for Option<T> {
+    fn access_bytes<F>(&self, f: F) -> Result<()>
     where
         F: FnMut(&[u8]) -> Result<()>,
     {
-        if let Some(bytes) = self {
-            f(bytes)
+        if let Some(val) = self {
+            val.access_bytes(f)
         } else {
             Ok(())
         }
     }
 
-    fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
+    fn access_bytes_mut<F, R>(&mut self, f: F) -> Result<Option<R>>
     where
         F: FnMut(&mut [u8]) -> Result<R>,
         R: 'static,
     {
-        if let Some(bytes) = self {
-            Ok(Some(f(bytes)?))
+        if let Some(val) = self {
+            val.access_bytes_mut(f)
         } else {
             Ok(None)
         }
@@ -119,32 +119,6 @@ macro_rules! impl_access_bytes_for_integers {
                 {
                     let mut bytes = self.to_ne_bytes();
                     Ok(Some(f(&mut bytes)?))
-                }
-            }
-
-            impl AccessBytes for Option<$n> {
-                fn access_bytes<F>(&self, mut f: F) -> Result<()>
-                where
-                    F: FnMut(&[u8]) -> Result<()>,
-                {
-                    if let Some(val) = self {
-                        f(&val.to_ne_bytes())
-                    } else {
-                        Ok(())
-                    }
-                }
-
-                fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
-                where
-                    F: FnMut(&mut [u8]) -> Result<R>,
-                    R: 'static,
-                {
-                    if let Some(val) = self {
-                        let mut bytes = val.to_ne_bytes();
-                        Ok(Some(f(&mut bytes)?))
-                    } else {
-                        Ok(None)
-                    }
                 }
             }
         )+
@@ -174,32 +148,6 @@ macro_rules! impl_access_bytes_for_non_zero_integers {
                 {
                     let mut bytes = self.get().to_ne_bytes();
                     Ok(Some(f(&mut bytes[..])?))
-                }
-            }
-
-            impl AccessBytes for Option<$n> {
-                fn access_bytes<F>(&self, mut f: F) -> Result<()>
-                where
-                    F: FnMut(&[u8]) -> Result<()>,
-                {
-                    if let Some(val) = self {
-                        f(&val.get().to_ne_bytes())
-                    } else {
-                        Ok(())
-                    }
-                }
-
-                fn access_bytes_mut<F, R>(&mut self, mut f: F) -> Result<Option<R>>
-                where
-                    F: FnMut(&mut [u8]) -> Result<R>,
-                    R: 'static,
-                {
-                    if let Some(val) = self {
-                        let mut bytes = val.get().to_ne_bytes();
-                        Ok(Some(f(&mut bytes)?))
-                    } else {
-                        Ok(None)
-                    }
                 }
             }
         )+

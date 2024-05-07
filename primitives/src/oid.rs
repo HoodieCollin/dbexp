@@ -9,7 +9,7 @@ pub struct O16(NonZeroU16);
 
 impl O16 {
     pub const INVALID: Self = Self(NonZeroU16::MAX);
-    pub const SENTINEL: Option<Self> = None;
+    pub const NIL: Option<Self> = None;
 
     pub fn new() -> Self {
         let mut id = rand::random::<u16>();
@@ -113,7 +113,7 @@ pub struct O32(NonZeroU32);
 
 impl O32 {
     pub const INVALID: Self = Self(NonZeroU32::MAX);
-    pub const SENTINEL: Option<Self> = None;
+    pub const NIL: Option<Self> = None;
 
     pub fn new() -> Self {
         let mut id = rand::random::<u32>();
@@ -217,7 +217,7 @@ pub struct O64(NonZeroU64);
 
 impl O64 {
     pub const INVALID: Self = Self(NonZeroU64::MAX);
-    pub const SENTINEL: Option<Self> = None;
+    pub const NIL: Option<Self> = None;
 
     pub fn new() -> Self {
         let mut id = rand::random::<u64>();

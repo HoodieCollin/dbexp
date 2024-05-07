@@ -2,6 +2,7 @@
 #![feature(lazy_cell)]
 #![feature(allocator_api)]
 #![feature(os_str_display)]
+#![feature(step_trait)]
 #![feature(generic_const_exprs)]
 
 use std::{
@@ -32,7 +33,7 @@ pub use data::{
     types::{DataType, ExpectedType},
     values::DataValue,
 };
-pub use idx::Idx;
+pub use idx::{Idx, ThinIdx};
 pub use internal_path::InternalPath;
 pub use internal_string::InternalString;
 pub use number::Number;
