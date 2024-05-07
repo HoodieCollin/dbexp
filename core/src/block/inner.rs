@@ -6,7 +6,7 @@ use memmap2::{MmapMut, MmapOptions};
 use parking_lot::RwLock;
 use primitives::{
     byte_encoding::{FromBytes, IntoBytes},
-    O64,
+    ThinIdx,
 };
 
 use crate::{
@@ -18,8 +18,8 @@ use crate::{
 pub struct BlockInner<T: 'static> {
     pub(crate) meta: BlockMeta,
     data: MmapMut,
-    pub(crate) slots_by_index: Vec<RwLock<(Option<O64>, NonNull<SlotData<T>>)>>,
-    pub(crate) index_by_record: IndexMap<ThinRecordId, usize>,
+    pub(crate) slots_by_index: Vec<RwLock<NonNull<SlotData<T>>>>,
+    pub(crate) index_by_record: IndexMap<ThinRecordId, ThinIdx>,
 }
 
 impl<T> Drop for BlockInner<T> {
@@ -45,7 +45,12 @@ impl<T> BlockInner<T> {
     }
 
     #[must_use]
-    pub fn new(idx: usize, table: TableId, file: Arc<File>, offset: usize) -> Result<Self> {
+    pub fn new(
+        index: impl Into<ThinIdx>,
+        table: TableId,
+        file: Arc<File>,
+        offset: usize,
+    ) -> Result<Self> {
         Self::_check_layout();
 
         let fs_meta = file.metadata()?;
@@ -60,7 +65,7 @@ impl<T> BlockInner<T> {
             let mut meta_bytes = [0u8; BlockMeta::BYTE_COUNT];
             file.read_exact_at(&mut meta_bytes, offset as u64)?;
 
-            let mut this = BlockMeta::new(idx, table, None);
+            let mut this = BlockMeta::new(index, table, None);
             this.init_from_bytes(&meta_bytes)?;
             this
         };
@@ -76,12 +81,12 @@ impl<T> BlockInner<T> {
 
         let slots_by_index = iter::repeat_with(|| ())
             .enumerate()
-            .map(|(idx, _)| {
-                let offset = idx * Self::SLOT_BYTE_COUNT;
+            .map(|(index, _)| {
+                let offset = index * Self::SLOT_BYTE_COUNT;
 
                 unsafe {
                     let ptr = data.as_ptr().add(offset) as *mut SlotData<T>;
-                    RwLock::new((O64::SENTINEL, NonNull::new_unchecked(ptr)))
+                    RwLock::new(NonNull::new_unchecked(ptr))
                 }
             })
             .take(block_capacity)
@@ -98,22 +103,26 @@ impl<T> BlockInner<T> {
     }
 
     #[must_use]
-    pub fn new_anon(idx: usize, table: TableId, config: Option<BlockConfig>) -> Result<Self> {
+    pub fn new_anon(
+        index: impl Into<ThinIdx>,
+        table: TableId,
+        config: Option<BlockConfig>,
+    ) -> Result<Self> {
         Self::_check_layout();
 
-        let meta = BlockMeta::new(idx, table, config);
+        let meta = BlockMeta::new(index, table, config);
 
         let block_capacity = meta.block_capacity();
         let data = MmapMut::map_anon(block_capacity * Self::SLOT_BYTE_COUNT)?;
 
         let slots_by_index = iter::repeat_with(|| ())
             .enumerate()
-            .map(|(idx, _)| {
-                let offset = idx * Self::SLOT_BYTE_COUNT;
+            .map(|(index, _)| {
+                let offset = index * Self::SLOT_BYTE_COUNT;
 
                 unsafe {
                     let ptr = data.as_ptr().add(offset) as *mut SlotData<T>;
-                    RwLock::new((O64::SENTINEL, NonNull::new_unchecked(ptr)))
+                    RwLock::new(NonNull::new_unchecked(ptr))
                 }
             })
             .take(block_capacity)
@@ -155,6 +164,10 @@ impl<T> BlockInner<T> {
 
     pub fn is_full(&self) -> bool {
         self.len() == self.capacity()
+    }
+
+    pub fn next_available_index(&self) -> ThinIdx {
+        self.meta.next_available_index()
     }
 
     #[must_use]

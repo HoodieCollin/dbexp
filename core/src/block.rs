@@ -1,7 +1,7 @@
 use std::{fs::File, sync::Arc};
 
 use anyhow::Result;
-use primitives::{shared_object::SharedObject, O64};
+use primitives::{shared_object::SharedObject, Idx, ThinIdx};
 
 use crate::{
     block::inner::BlockInner,
@@ -27,14 +27,14 @@ pub enum InsertState<T: 'static> {
 }
 
 pub struct Block<T: 'static> {
-    idx: usize,
+    index: ThinIdx,
     pub(crate) inner: SharedObject<BlockInner<T>>,
 }
 
 impl<T> Clone for Block<T> {
     fn clone(&self) -> Self {
         Self {
-            idx: self.idx,
+            index: self.index,
             inner: self.inner.clone(),
         }
     }
@@ -44,23 +44,41 @@ impl<T> Block<T> {
     pub(crate) const SLOT_BYTE_COUNT: usize = BlockInner::<T>::SLOT_BYTE_COUNT;
 
     #[must_use]
-    pub fn new(idx: usize, table: TableId, file: Arc<File>, offset: usize) -> Result<Self> {
+    pub fn new(
+        index: impl Into<ThinIdx>,
+        table: TableId,
+        file: Arc<File>,
+        offset: usize,
+    ) -> Result<Self> {
+        let index = index.into();
+
         Ok(Self {
-            idx,
-            inner: SharedObject::new(BlockInner::new(idx, table, file, offset)?),
+            index,
+            inner: SharedObject::new(BlockInner::new(index, table, file, offset)?),
         })
     }
 
     #[must_use]
-    pub fn new_anon(idx: usize, table: TableId, config: Option<BlockConfig>) -> Result<Self> {
+    pub fn new_anon(
+        index: impl Into<ThinIdx>,
+        table: TableId,
+        config: Option<BlockConfig>,
+    ) -> Result<Self> {
+        let index = index.into();
+
         Ok(Self {
-            idx,
-            inner: SharedObject::new(BlockInner::new_anon(idx, table, config)?),
+            index,
+            inner: SharedObject::new(BlockInner::new_anon(index, table, config)?),
         })
     }
 
-    pub fn idx(&self) -> usize {
-        self.idx
+    pub fn index(&self) -> ThinIdx {
+        self.index
+    }
+
+    pub fn next_available_index(&self) -> ThinIdx {
+        self.inner
+            .read_with(|inner| inner.meta.next_available_index())
     }
 
     pub fn len_as_bytes(&self) -> usize {
@@ -100,83 +118,86 @@ impl<T> Block<T> {
     }
 
     #[must_use]
-    pub fn insert_one(&self, record: RecordId, data: T) -> Result<SlotHandle<T>, InsertError<T>> {
+    pub fn insert_one(
+        &self,
+        record: Option<RecordId>,
+        data: T,
+    ) -> Result<SlotHandle<T>, InsertError<T>> {
         self.inner.write_with(|inner| {
-            if inner.meta.table != record.table() {
-                Err(InsertError::TableMismatch {
-                    item: (record, data),
-                    iter: None,
-                })
-            } else {
-                self._insert_one(inner, (record, data))
+            if let Some(record) = record {
+                if inner.meta.table != record.table() {
+                    return Err(InsertError::TableMismatch {
+                        item: (Some(record), data),
+                        iter: None,
+                    });
+                }
             }
+
+            self.insert_one_with(inner, |_| Ok((record, data)))
         })
     }
 
     #[must_use]
-    pub(super) fn _insert_one(
+    pub(super) fn insert_one_with<F>(
         &self,
         inner: &mut BlockInner<T>,
-        tuple: SlotTuple<T>,
-    ) -> Result<SlotHandle<T>, InsertError<T>> {
+        f: F,
+    ) -> Result<SlotHandle<T>, InsertError<T>>
+    where
+        F: FnOnce(Idx) -> Result<SlotTuple<T>>,
+    {
         let is_gap;
-        let idx;
-
-        let (record, data) = tuple;
-        let thin_record_id = record.into_thin();
-
-        if inner.index_by_record.contains_key(&thin_record_id) {
-            return Err(InsertError::AlreadyExists {
-                item: (record, data),
-                iter: None,
-            });
-        }
+        let index;
 
         if inner.meta.gap_count > 0 {
-            idx = inner.meta.gap_tail;
+            index = inner.meta.gap_tail.expect("gap count > 0");
             inner.meta.gap_count -= 1;
             is_gap = true;
         } else {
-            idx = inner.meta.length;
+            index = ThinIdx::new_validated(inner.meta.length)?;
             inner.meta.length += 1;
             is_gap = false;
         }
 
-        inner.index_by_record.insert(thin_record_id, idx);
-
-        let gen = O64::new();
         let mut new_tail = None;
+        let idx = index.into_idx();
+        let (record, data) = f(idx)?;
 
-        unsafe {
-            let slot = &inner.slots_by_index[idx];
-            let mut slot = slot.write();
+        let slot = &inner.slots_by_index[index];
+        let mut slot = slot.write();
+        let slot_data = unsafe { slot.as_mut() };
 
-            slot.0 = Some(gen);
-
-            let slot = slot.1.as_mut();
-
-            if is_gap {
-                new_tail = Some(slot.previous_gap_unchecked());
-            } else {
-                slot.create_gap(None);
-            }
-
-            slot.fill_gap(thin_record_id, data);
+        if is_gap {
+            new_tail = Some(unsafe { ThinIdx::new_unchecked(slot_data.previous_gap_unchecked()) });
+        } else {
+            slot_data.create_gap(ThinIdx::NIL);
         }
 
+        if let Some(thin_record) = record.map(|r| r.into_thin()) {
+            if inner.index_by_record.contains_key(&thin_record) {
+                return Err(InsertError::AlreadyExists {
+                    item: (record, data),
+                    iter: None,
+                });
+            } else {
+                inner.index_by_record.insert(thin_record, index);
+            }
+        }
+
+        slot_data.fill_gap(record, idx, data);
+
         if let Some(new_tail) = new_tail {
-            inner.meta.gap_tail = new_tail;
+            inner.meta.gap_tail = Some(new_tail);
         }
 
         Ok(SlotHandle {
             block: self.clone(),
-            gen,
             idx,
         })
     }
 
     #[must_use]
-    pub fn insert<I>(&self, iter: I, idx_offset: usize) -> Result<InsertState<T>, InsertError<T>>
+    pub fn insert<I>(&self, iter: I, index_offset: usize) -> Result<InsertState<T>, InsertError<T>>
     where
         I: IntoIterator<Item = SlotTuple<T>> + 'static,
     {
@@ -185,7 +206,7 @@ impl<T> Block<T> {
 
         if let Some(high) = high {
             if low == 0 && high == 0 {
-                return Err(InsertError::NoValues);
+                return Ok(InsertState::Done(Vec::new()));
             }
         }
 
@@ -202,16 +223,16 @@ impl<T> Block<T> {
         let mut errors = Vec::new();
         let mut handles = Vec::new();
         let exhausted;
-        let mut idx = idx_offset;
+        let mut index = index_offset;
 
         loop {
             match iter.next() {
-                Some(tuple) => match self._insert_one(&mut inner, tuple) {
+                Some(tuple) => match self.insert_one_with(&mut inner, |_| Ok(tuple)) {
                     Ok(handle) => {
-                        handles.push((idx, handle));
+                        handles.push((index, handle));
                     }
                     Err(err) => {
-                        errors.push((idx, err));
+                        errors.push((index, err));
                     }
                 },
                 None => {
@@ -220,7 +241,7 @@ impl<T> Block<T> {
                 }
             }
 
-            idx += 1;
+            index += 1;
 
             if inner.is_full() {
                 exhausted = false;
@@ -256,20 +277,22 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Block<T> {
 
         d.field("meta", &inner.meta);
 
-        let mut slots = Vec::with_capacity(inner.meta.length);
+        let mut slots = Vec::with_capacity(inner.meta.len());
+        let mut needed = inner.meta.len();
 
         inner
             .slots_by_index
             .iter()
             .take_while(|slot| {
                 let slot = slot.read();
+                let slot = unsafe { slot.as_ref() };
 
-                if slot.0 == O64::SENTINEL {
-                    false
-                } else {
-                    slots.push(unsafe { slot.1.as_ref() });
-                    true
+                if !slot.is_gap() {
+                    slots.push(unsafe { slot.data_unchecked() });
+                    needed -= 1;
                 }
+
+                needed > 0
             })
             .count();
 
@@ -305,9 +328,9 @@ mod tests {
 
     #[test]
     fn test_block_meta() -> Result<()> {
-        let meta = BlockMeta::new(0, TableId::new(), None);
-        let mut meta2 = BlockMeta::new(123, TableId::new(), None);
-        let mut meta3 = BlockMeta::new(456, TableId::new(), None);
+        let meta = BlockMeta::new(0usize, TableId::new(), None);
+        let mut meta2 = BlockMeta::new(123usize, TableId::new(), None);
+        let mut meta3 = BlockMeta::new(456usize, TableId::new(), None);
         meta2.init_from_bytes(&meta.into_bytes()?)?;
 
         assert_eq!(meta, meta2);
@@ -321,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn mvp() -> Result<()> {
+    fn test_insert_and_remove() -> Result<()> {
         #[derive(Debug)]
         struct Item {
             pub a: usize,
@@ -329,33 +352,28 @@ mod tests {
         }
 
         let table = TableId::new();
-        let block = Block::new_anon(0, table, None)?;
-
-        let r1 = RecordId::new(table);
-        let r2 = RecordId::new(table);
-        let r3 = RecordId::new(table);
-        let r4 = RecordId::new(table);
+        let block = Block::new_anon(0usize, table, None)?;
 
         fn unwrap_insert_err<T: std::fmt::Debug>(err: InsertError<T>) -> anyhow::Error {
             anyhow::anyhow!("insert error: {:?}", err)
         }
 
         let _h1 = block
-            .insert_one(r1, Item { a: 1, b: 2 })
+            .insert_one(None, Item { a: 1, b: 2 })
             .map_err(unwrap_insert_err)?;
 
         let h2 = block
-            .insert_one(r2, Item { a: 3, b: 4 })
+            .insert_one(None, Item { a: 3, b: 4 })
             .map_err(unwrap_insert_err)?;
 
         let _h3 = block
-            .insert_one(r3, Item { a: 5, b: 6 })
+            .insert_one(None, Item { a: 5, b: 6 })
             .map_err(unwrap_insert_err)?;
 
         let (r2, i2) = h2.remove_self()?;
 
         let h4 = block
-            .insert_one(r4, Item { a: 7, b: 8 })
+            .insert_one(None, Item { a: 7, b: 8 })
             .map_err(unwrap_insert_err)?;
 
         let h2 = block.insert_one(r2, i2).map_err(unwrap_insert_err)?;

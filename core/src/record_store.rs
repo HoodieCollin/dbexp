@@ -1,74 +1,38 @@
 use std::{iter, num::NonZeroUsize, ops::RangeBounds};
 
 use anyhow::Result;
-use primitives::DataValue;
+use primitives::{DataValue, Idx, ThinIdx};
 
 use crate::{
     object_ids::{RecordId, TableId},
     slot::SlotHandle,
+    store::{InsertError, InsertState, Store, StoreConfig, StoreError},
 };
-
-use super::{InsertError, InsertState, Store, StoreConfig, StoreError};
 
 pub const MAX_COLUMNS: usize = 32;
 
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct CellIndex {
-    pub block: NonZeroUsize,
-    pub row: NonZeroUsize,
+    pub block: ThinIdx,
+    pub row: Idx,
 }
 
 impl std::fmt::Debug for CellIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CellIndex")
-            .field("block", &self.block())
-            .field("row", &self.row())
+            .field("block", &self.block)
+            .field("row", &self.row)
             .finish()
     }
 }
 
 impl From<SlotHandle<DataValue>> for CellIndex {
     fn from(handle: SlotHandle<DataValue>) -> Self {
-        let block = handle.block.idx();
-        let row = handle.idx;
-
-        Self::new_base_zero(block, row)
-    }
-}
-
-impl CellIndex {
-    pub fn new_base_zero(block: usize, row: usize) -> Self {
-        let block = if block == usize::MAX {
-            usize::MAX
-        } else {
-            block + 1
-        };
-
-        let row = if row == usize::MAX {
-            usize::MAX
-        } else {
-            row + 1
-        };
-
-        unsafe {
-            Self {
-                block: NonZeroUsize::new_unchecked(block),
-                row: NonZeroUsize::new_unchecked(row),
-            }
+        Self {
+            block: handle.block.index(),
+            row: handle.idx,
         }
-    }
-
-    pub fn new(block: NonZeroUsize, row: NonZeroUsize) -> Self {
-        Self { block, row }
-    }
-
-    pub fn block(&self) -> usize {
-        self.block.get() - 1
-    }
-
-    pub fn row(&self) -> usize {
-        self.row.get() - 1
     }
 }
 
@@ -155,8 +119,9 @@ impl RecordStore {
         let table = self.table;
         let columns = self.columns;
 
-        let record = RecordId::new(table);
-        let handle = self.store.insert_one(record, ColumnIndexes::new(columns))?;
+        let store = self.store.write();
+        let record = RecordId::new(store.next_available_index(), table);
+        let handle = self.store.insert_one(None, ColumnIndexes::new(columns))?;
 
         Ok((record, handle))
     }
@@ -173,26 +138,25 @@ impl RecordStore {
         let table = self.table;
         let columns = self.columns;
 
-        let records = iter::repeat_with(|| (RecordId::new(table), ColumnIndexes::new(columns)))
-            .take(count)
-            .collect::<Vec<_>>();
-
-        match self.store.insert(records.clone())? {
-            InsertState::Done(handles) => Ok(iter::zip(
-                records.iter().copied().map(|(record, ..)| record),
-                handles.into_iter(),
-            )
-            .collect::<Vec<_>>()),
+        match self
+            .store
+            .insert(vec![(None, ColumnIndexes::new(columns)); count])?
+        {
+            InsertState::Done(handles) => Ok(handles
+                .into_iter()
+                .map(|h| (RecordId::new(h.idx.into_thin(), table), h))
+                .collect::<Vec<_>>()),
             InsertState::Partial {
                 errors, handles, ..
             } => {
                 let mut tuples = handles
                     .into_iter()
-                    .map(|(idx, h)| (records.get(idx).unwrap().0, h))
+                    .map(|(_, h)| (RecordId::new(h.idx.into_thin(), table), h))
                     .collect::<Vec<_>>();
 
                 for (_, error) in errors {
                     match error {
+                        // handle Idx collision
                         InsertError::AlreadyExists { .. } => {
                             let mut retries_remaining = 3i8;
 
@@ -236,70 +200,61 @@ impl RecordStore {
         let table = self.table;
         let columns = self.columns;
 
-        let mut records_and_values = iter
+        let mut values = iter
             .into_iter()
             .enumerate()
-            .map(|(idx, values)| {
-                let record = RecordId::new(table);
+            .map(|(index, values)| {
                 let columns = ColumnIndexes::new(columns);
 
-                (idx, record, columns, values)
+                (index, columns, values)
             })
             .collect::<Vec<_>>();
 
         let record_insert_state = self.store.insert(
-            records_and_values
+            values
                 .iter()
-                .map(|(_, record, columns, _)| (*record, *columns))
+                .map(|(_, columns, _)| (None, *columns))
                 .collect::<Vec<_>>(),
         )?;
 
         match record_insert_state {
             InsertState::Done(handles) => Ok(iter::zip(
-                records_and_values
-                    .into_iter()
-                    .map(|(idx, record, _, values)| (idx, record, values)),
+                values.into_iter().map(|(idx, _, values)| (idx, values)),
                 handles.into_iter(),
             )
-            .map(|((idx, record, values), handle)| (idx, record, handle, values))
+            .map(|((index, values), h)| (index, RecordId::new(h.idx.into_thin(), table), h, values))
             .collect::<Vec<_>>()),
             InsertState::Partial { errors, handles } => {
-                fn new_invalid_entry<T>() -> (usize, RecordId, ColumnIndexes, Vec<T>) {
-                    (
-                        usize::MAX,
-                        RecordId::INVALID,
-                        ColumnIndexes::INVALID,
-                        vec![],
-                    )
+                fn new_invalid_entry<T>() -> (usize, ColumnIndexes, Vec<T>) {
+                    (usize::MAX, ColumnIndexes::INVALID, vec![])
                 }
 
                 let mut tuples = {
                     handles
                         .into_iter()
-                        .map(|(i, handle)| {
-                            let entry = records_and_values.get_mut(i).unwrap();
-                            let (idx, record, _, values) =
-                                std::mem::replace(entry, new_invalid_entry());
+                        .map(|(i, h)| {
+                            let entry = values.get_mut(i).unwrap();
+                            let (index, _, values) = std::mem::replace(entry, new_invalid_entry());
 
-                            (idx, record, handle, values)
+                            (index, RecordId::new(h.idx.into_thin(), table), h, values)
                         })
                         .collect::<Vec<_>>()
                 };
 
-                for (idx, error) in errors {
+                for (index, error) in errors {
                     match error {
                         InsertError::AlreadyExists { .. } => {
                             let mut retries_remaining = 3i8;
 
                             loop {
                                 match self.insert_one() {
-                                    Ok((record, handle)) => {
-                                        let entry = records_and_values.get_mut(idx).unwrap();
+                                    Ok((record, h)) => {
+                                        let entry = values.get_mut(index).unwrap();
 
-                                        let (idx, _, _, values) =
+                                        let (idx, _, values) =
                                             std::mem::replace(entry, new_invalid_entry());
 
-                                        tuples.push((idx, record, handle, values));
+                                        tuples.push((idx, record, h, values));
                                         break;
                                     }
                                     Err(err) => {

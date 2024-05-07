@@ -1,30 +1,39 @@
-use std::mem::MaybeUninit;
+use std::{mem::MaybeUninit, ptr::NonNull};
 
 use anyhow::Result;
 use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLockReadGuard, RwLockWriteGuard,
 };
-use primitives::oid;
+use primitives::{Idx, ThinIdx, O16};
 
 use super::block::Block;
 use crate::object_ids::{RecordId, ThinRecordId};
 
 pub(super) const GAP_HEAD: usize = usize::MAX;
 
-pub type SlotTuple<T> = (RecordId, T);
+pub type SlotTuple<T> = (Option<RecordId>, T);
 
 #[repr(C)]
-pub struct SlotData<T>(Option<ThinRecordId>, MaybeUninit<T>);
+pub struct SlotData<T> {
+    gen_id: Option<O16>,
+    record: Option<ThinRecordId>,
+    data: MaybeUninit<T>,
+}
 
 impl<T: Clone> Clone for SlotData<T> {
     fn clone(&self) -> Self {
         if self.is_gap() {
-            Self(None, MaybeUninit::uninit())
+            Self {
+                gen_id: None,
+                record: None,
+                data: MaybeUninit::uninit(),
+            }
         } else {
-            Self(
-                self.0.clone(),
-                MaybeUninit::new(unsafe { self.data_unchecked().clone() }),
-            )
+            Self {
+                gen_id: self.gen_id,
+                record: self.record,
+                data: MaybeUninit::new(unsafe { self.data_unchecked().clone() }),
+            }
         }
     }
 }
@@ -33,121 +42,11 @@ impl<T: Copy> Copy for SlotData<T> {}
 
 impl<T> Default for SlotData<T> {
     fn default() -> Self {
-        Self(None, MaybeUninit::uninit())
-    }
-}
-
-impl<T> SlotData<T> {
-    pub fn new(record: RecordId, data: T) -> Self {
-        Self(Some(record.into_thin()), MaybeUninit::new(data))
-    }
-
-    pub fn is_gap(&self) -> bool {
-        self.0.is_none()
-    }
-
-    /// Returns the previous gap idx in the chain.
-    pub fn previous_gap(&self) -> Option<usize> {
-        if self.is_gap() {
-            Some(unsafe { self.previous_gap_unchecked() })
-        } else {
-            None
+        Self {
+            gen_id: None,
+            record: None,
+            data: MaybeUninit::uninit(),
         }
-    }
-
-    pub unsafe fn previous_gap_unchecked(&self) -> usize {
-        debug_assert!(self.is_gap());
-        std::ptr::read_unaligned(self.1.as_ptr() as *const _)
-    }
-
-    pub fn thin_record_id(&self) -> Option<ThinRecordId> {
-        if self.is_gap() {
-            None
-        } else {
-            Some(unsafe { self.thin_record_id_unchecked() })
-        }
-    }
-
-    pub unsafe fn thin_record_id_unchecked(&self) -> ThinRecordId {
-        debug_assert!(!self.is_gap());
-        self.0.unwrap_unchecked()
-    }
-
-    pub fn data(&self) -> Option<&T> {
-        if self.is_gap() {
-            None
-        } else {
-            Some(unsafe { self.data_unchecked() })
-        }
-    }
-
-    pub unsafe fn data_unchecked(&self) -> &T {
-        debug_assert!(!self.is_gap());
-        self.1.assume_init_ref()
-    }
-
-    pub unsafe fn data_unchecked_mut(&mut self) -> &mut T {
-        debug_assert!(!self.is_gap());
-        self.1.assume_init_mut()
-    }
-
-    pub unsafe fn read_data_unchecked(&self) -> T {
-        debug_assert!(!self.is_gap());
-        std::ptr::read(self.1.as_ptr())
-    }
-
-    /// Blocks the previous gap idx in the chain.
-    pub fn create_gap(&mut self, previous_gap: Option<usize>) {
-        if self.is_gap() {
-            return;
-        }
-
-        self.0 = ThinRecordId::SENTINEL;
-
-        unsafe {
-            std::ptr::write_unaligned(
-                self.1.as_mut_ptr() as *mut _,
-                previous_gap.unwrap_or(GAP_HEAD),
-            );
-        }
-    }
-
-    pub fn fill_gap(&mut self, record: ThinRecordId, data: T) {
-        #[cfg(debug_assertions)]
-        {
-            if !self.is_gap() {
-                panic!("slot is not a gap");
-            }
-        }
-
-        self.0 = Some(record);
-        self.1 = MaybeUninit::new(data);
-    }
-
-    pub fn replace(&mut self, data: T) {
-        #[cfg(debug_assertions)]
-        {
-            if self.is_gap() {
-                panic!("slot is a gap");
-            }
-        }
-
-        self.1 = MaybeUninit::new(data);
-    }
-
-    #[must_use]
-    pub fn update<F, R>(&mut self, f: F) -> Result<R>
-    where
-        F: FnOnce(&mut T) -> Result<R>,
-    {
-        #[cfg(debug_assertions)]
-        {
-            if self.is_gap() {
-                panic!("slot is a gap");
-            }
-        }
-
-        f(unsafe { self.data_unchecked_mut() })
     }
 }
 
@@ -170,10 +69,197 @@ impl<T: std::fmt::Debug> std::fmt::Debug for SlotData<T> {
     }
 }
 
+impl<T> SlotData<T> {
+    pub fn new(record: Option<impl Into<ThinRecordId>>, data: T) -> Self {
+        Self {
+            gen_id: Some(O16::new()),
+            record: record.map(|x| x.into()),
+            data: MaybeUninit::new(data),
+        }
+    }
+
+    pub fn is_gap(&self) -> bool {
+        self.gen_id.is_none()
+    }
+
+    /// Returns the previous gap idx in the chain.
+    pub fn previous_gap(&self) -> Option<usize> {
+        if self.is_gap() {
+            Some(unsafe { self.previous_gap_unchecked() })
+        } else {
+            None
+        }
+    }
+
+    pub unsafe fn previous_gap_unchecked(&self) -> usize {
+        debug_assert!(self.is_gap());
+        std::ptr::read_unaligned(self.data.as_ptr() as *const _)
+    }
+
+    pub fn thin_record_id(&self) -> Option<ThinRecordId> {
+        if self.is_gap() {
+            None
+        } else {
+            self.record
+        }
+    }
+
+    pub fn data(&self) -> Option<&T> {
+        if self.is_gap() {
+            None
+        } else {
+            Some(unsafe { self.data_unchecked() })
+        }
+    }
+
+    pub fn gen_id(&self) -> Option<O16> {
+        if self.is_gap() {
+            None
+        } else {
+            Some(unsafe { self.gen_id_unchecked() })
+        }
+    }
+
+    pub unsafe fn gen_id_unchecked(&self) -> O16 {
+        debug_assert!(!self.is_gap());
+        self.gen_id.unwrap_unchecked()
+    }
+
+    pub unsafe fn data_unchecked(&self) -> &T {
+        debug_assert!(!self.is_gap());
+        self.data.assume_init_ref()
+    }
+
+    pub unsafe fn data_unchecked_mut(&mut self) -> &mut T {
+        debug_assert!(!self.is_gap());
+        self.data.assume_init_mut()
+    }
+
+    pub unsafe fn read_data_unchecked(&self) -> T {
+        debug_assert!(!self.is_gap());
+        std::ptr::read(self.data.as_ptr())
+    }
+
+    /// Blocks the previous gap idx in the chain.
+    pub fn create_gap(&mut self, previous_gap: Option<impl Into<ThinIdx>>) {
+        if self.is_gap() {
+            return;
+        }
+
+        self.record = ThinRecordId::NIL;
+        self.gen_id = O16::NIL;
+
+        unsafe {
+            std::ptr::write_unaligned(
+                self.data.as_mut_ptr() as *mut _,
+                previous_gap
+                    .map_or(ThinIdx::INVALID, |x| x.into())
+                    .into_usize(),
+            );
+        }
+    }
+
+    pub fn fill_gap(&mut self, record: Option<impl Into<ThinRecordId>>, idx: Idx, data: T) {
+        #[cfg(debug_assertions)]
+        {
+            if !self.is_gap() {
+                panic!("slot is not a gap");
+            }
+        }
+
+        self.gen_id = Some(idx.into_gen_id());
+        self.record = record.map(|x| x.into());
+        self.data = MaybeUninit::new(data);
+    }
+
+    pub fn replace(&mut self, data: T) {
+        #[cfg(debug_assertions)]
+        {
+            if self.is_gap() {
+                panic!("slot is a gap");
+            }
+        }
+
+        self.gen_id = Some(O16::new());
+        self.data = MaybeUninit::new(data);
+    }
+
+    #[must_use]
+    pub fn update<F, R>(&mut self, f: F) -> Result<R>
+    where
+        F: FnOnce(&mut T) -> Result<R>,
+    {
+        #[cfg(debug_assertions)]
+        {
+            if self.is_gap() {
+                panic!("slot is a gap");
+            }
+        }
+
+        f(unsafe { self.data_unchecked_mut() })
+    }
+
+    pub fn from_parts(gen_id: O16, record: Option<impl Into<ThinRecordId>>, data: T) -> Self {
+        Self {
+            gen_id: Some(gen_id),
+            record: record.map(|x| x.into()),
+            data: MaybeUninit::new(data),
+        }
+    }
+
+    pub fn into_parts(self) -> Option<(O16, Option<ThinRecordId>, T)> {
+        if self.is_gap() {
+            None
+        } else {
+            unsafe {
+                Some((
+                    self.gen_id.unwrap_unchecked(),
+                    self.thin_record_id(),
+                    self.read_data_unchecked(),
+                ))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct SlotDataRef<'a, T>(&'a NonNull<SlotData<T>>);
+
+impl<'a, T> std::ops::Deref for SlotDataRef<'a, T> {
+    type Target = SlotData<T>;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<'a, T> AsRef<SlotData<T>> for SlotDataRef<'a, T> {
+    fn as_ref(&self) -> &SlotData<T> {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<'a, T> SlotDataRef<'a, T> {
+    pub fn new(ptr: &'a NonNull<SlotData<T>>) -> Self {
+        Self(ptr)
+    }
+
+    pub fn check_gen(self, expected_gen: O16) -> Result<()> {
+        if let Some(gen) = unsafe { self.0.as_ref().gen_id() } {
+            if gen != expected_gen {
+                anyhow::bail!("slot has been invalidated");
+            }
+        } else {
+            anyhow::bail!("slot is not initialized");
+        }
+
+        Ok(())
+    }
+}
+
 pub struct SlotHandle<T: 'static> {
     pub block: Block<T>,
-    pub gen: oid::O64,
-    pub idx: usize,
+    pub idx: Idx,
 }
 
 impl<T> SlotHandle<T> {
@@ -182,18 +268,13 @@ impl<T> SlotHandle<T> {
     where
         F: FnOnce(MappedRwLockReadGuard<'_, SlotData<T>>) -> Result<R>,
     {
+        let (expected_gen, slot_index) = self.idx.into_parts();
         let outer = self.block.inner.read_recursive();
-        let inner = outer.slots_by_index[self.idx].read();
+        let inner = outer.slots_by_index[slot_index].read();
 
-        if let Some(gen) = inner.0 {
-            if gen != self.gen {
-                anyhow::bail!("slot has been invalidated");
-            }
-        } else {
-            anyhow::bail!("slot is not initialized");
-        }
+        SlotDataRef::new(&inner).check_gen(expected_gen)?;
 
-        let guard = RwLockReadGuard::map(inner, |(_, ptr)| unsafe { ptr.as_ref() });
+        let guard = RwLockReadGuard::map(inner, |ptr| unsafe { ptr.as_ref() });
 
         f(guard)
     }
@@ -203,18 +284,13 @@ impl<T> SlotHandle<T> {
     where
         F: FnOnce(MappedRwLockWriteGuard<'_, SlotData<T>>) -> Result<R>,
     {
+        let (expected_gen, slot_index) = self.idx.into_parts();
         let outer = self.block.inner.read_recursive();
-        let inner = outer.slots_by_index[self.idx].write();
+        let inner = outer.slots_by_index[slot_index].write();
 
-        if let Some(gen) = inner.0 {
-            if gen != self.gen {
-                anyhow::bail!("slot has been invalidated");
-            }
-        } else {
-            anyhow::bail!("slot is not initialized");
-        }
+        SlotDataRef::new(&inner).check_gen(expected_gen)?;
 
-        let guard = RwLockWriteGuard::map(inner, |(_, ptr)| unsafe { ptr.as_mut() });
+        let guard = RwLockWriteGuard::map(inner, |ptr| unsafe { ptr.as_mut() });
 
         f(guard)
     }
@@ -226,34 +302,31 @@ impl<T> SlotHandle<T> {
 
         unsafe {
             let (record, data) = {
-                let mut inner = outer.slots_by_index[self.idx].write();
+                let (expected_gen, slot_index) = self.idx.into_parts();
+                let mut inner = outer.slots_by_index[slot_index].write();
 
-                if let Some(gen) = inner.0 {
-                    if gen != self.gen {
-                        anyhow::bail!("slot has been invalidated");
-                    }
-                } else {
-                    anyhow::bail!("slot is not initialized");
-                }
+                SlotDataRef::new(&inner).check_gen(expected_gen)?;
 
-                let slot = inner.1.as_mut();
+                let slot = inner.as_mut();
                 let data = slot.read_data_unchecked();
-                let record = slot.thin_record_id_unchecked();
+                let record = slot.thin_record_id();
 
-                slot.create_gap(if prev_tail == GAP_HEAD {
-                    None
-                } else {
-                    Some(prev_tail)
-                });
+                slot.create_gap(prev_tail);
 
                 (record, data)
             };
 
-            outer.index_by_record.shift_remove(&record);
-            outer.meta.gap_tail = self.idx;
+            outer.meta.gap_tail = Some(self.idx.into_thin());
             outer.meta.gap_count += 1;
 
-            Ok((RecordId::from_thin(record, outer.meta.table), data))
+            let record = if let Some(thin) = record {
+                outer.index_by_record.shift_remove(&thin);
+                Some(RecordId::from_thin(thin, outer.meta.table))
+            } else {
+                None
+            };
+
+            Ok((record, data))
         }
     }
 }
@@ -262,7 +335,6 @@ impl<T> Clone for SlotHandle<T> {
     fn clone(&self) -> Self {
         Self {
             block: self.block.clone(),
-            gen: self.gen,
             idx: self.idx,
         }
     }
@@ -270,7 +342,7 @@ impl<T> Clone for SlotHandle<T> {
 
 impl<T> PartialEq for SlotHandle<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.gen == other.gen && self.idx == other.idx
+        self.idx == other.idx
     }
 }
 
@@ -278,10 +350,10 @@ impl<T> Eq for SlotHandle<T> {}
 
 impl<T> PartialOrd for SlotHandle<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.gen != other.gen {
+        if self.idx.into_gen_id() != other.idx.into_gen_id() {
             None
         } else {
-            Some(self.idx.cmp(&other.idx))
+            Some(self.idx.into_u64().cmp(&other.idx.into_u64()))
         }
     }
 }
@@ -290,7 +362,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for SlotHandle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut d = f.debug_struct("SlotHandle");
 
-        d.field("gen", &self.gen).field("idx", &self.idx);
+        d.field("idx", &self.idx);
 
         let res = self.read_with(|data| {
             d.field("valid", &!data.is_gap()).field("data", &data);

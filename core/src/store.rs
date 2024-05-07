@@ -2,7 +2,11 @@ use std::{num::NonZeroUsize, ops::RangeBounds};
 
 use anyhow::Result;
 
-use primitives::{byte_encoding::IntoBytes, shared_object::SharedObject};
+use primitives::{
+    byte_encoding::IntoBytes,
+    shared_object::{SharedObject, SharedObjectReadGuard, SharedObjectWriteGuard},
+    Idx, ThinIdx,
+};
 
 use crate::{
     block::{self, Block, BlockConfig},
@@ -15,14 +19,12 @@ use self::inner::StoreInner;
 pub use self::{
     config::StoreConfig,
     meta::StoreMeta,
-    record_store::{RecordStore, RecordStoreError},
     result::{BlockCreationError, InsertError, StoreError},
 };
 
 pub mod config;
 pub mod inner;
 pub mod meta;
-pub mod record_store;
 pub mod result;
 
 #[derive(Debug)]
@@ -54,21 +56,21 @@ impl<T> Store<T> {
         Ok(store)
     }
 
-    fn _create_block(inner: &mut StoreInner<T>, idx: usize) -> Result<()> {
+    fn _create_block(inner: &mut StoreInner<T>, index: ThinIdx) -> Result<()> {
         let table = inner.meta.table;
         let block_capacity = inner.meta.config.block_capacity.get();
 
         if let Some(file) = inner.file.as_ref().cloned() {
             let block_capacity_as_bytes = block_capacity * Block::<T>::SLOT_BYTE_COUNT;
-            let offset = StoreMeta::BYTE_COUNT + (idx * block_capacity_as_bytes);
+            let offset = StoreMeta::BYTE_COUNT + (index * block_capacity_as_bytes);
 
             inner
                 .blocks
-                .insert(idx, block::Block::new(idx, table, file, offset)?);
+                .insert(index, block::Block::new(index, table, file, offset)?);
         } else {
             inner.blocks.insert(
-                idx,
-                block::Block::new_anon(idx, table, Some(BlockConfig::new(block_capacity)?))?,
+                index,
+                block::Block::new_anon(index, table, Some(BlockConfig::new(block_capacity)?))?,
             );
         }
 
@@ -89,51 +91,66 @@ impl<T> Store<T> {
             return Ok(());
         }
 
-        let start = match r.start_bound() {
+        let start = ThinIdx::new_validated(match r.start_bound() {
             std::ops::Bound::Included(&start) => start,
             std::ops::Bound::Excluded(&start) => start + 1,
             std::ops::Bound::Unbounded => 0,
-        };
+        })?;
 
-        let end = match r.end_bound() {
+        let end = ThinIdx::new_validated(match r.end_bound() {
             std::ops::Bound::Included(&end) => end,
             std::ops::Bound::Excluded(&end) => end - 1,
-            std::ops::Bound::Unbounded => usize::MAX,
-        };
+            std::ops::Bound::Unbounded => ThinIdx::MAX,
+        })?;
 
-        let end = std::cmp::min(end, inner.meta.item_count);
+        let end = std::cmp::min(end, inner.meta.item_count.into());
         let block_capacity = inner.meta.config.block_capacity;
 
-        let start_block_idx = start / block_capacity;
-        let mut end_block_idx = end / block_capacity;
+        let start_block_index = start / block_capacity;
+        let mut end_block_index = end / block_capacity;
 
         if end % block_capacity == 0 && end > 0 {
-            end_block_idx -= 1;
+            end_block_index -= 1;
         }
 
         let mut inner = inner.upgrade();
 
-        for idx in start_block_idx..=end_block_idx {
-            if inner.blocks.contains_key(&idx) {
+        for index in start_block_index..=end_block_index {
+            if inner.blocks.contains_key(&index) {
                 continue;
             }
 
-            Self::_create_block(&mut inner, idx)?;
+            Self::_create_block(&mut inner, index)?;
         }
 
         Ok(())
     }
 
-    pub fn insert_one(&self, record: RecordId, data: T) -> Result<SlotHandle<T>, StoreError<T>> {
-        let mut inner = self.0.write();
-        self._insert_one(&mut inner, (record, data))
+    pub fn read(&self) -> SharedObjectReadGuard<StoreInner<T>> {
+        self.0.upgradable()
     }
 
-    pub fn _insert_one(
+    pub fn write(&self) -> SharedObjectWriteGuard<StoreInner<T>> {
+        self.0.upgradable().upgrade()
+    }
+
+    pub fn insert_one(
+        &self,
+        record: Option<RecordId>,
+        data: T,
+    ) -> Result<SlotHandle<T>, StoreError<T>> {
+        let mut inner = self.0.write();
+        self.insert_one_with(&mut inner, |_| Ok((record, data)))
+    }
+
+    pub fn insert_one_with<F>(
         &self,
         mut inner: &mut StoreInner<T>,
-        tuple: SlotTuple<T>,
-    ) -> Result<SlotHandle<T>, StoreError<T>> {
+        f: F,
+    ) -> Result<SlotHandle<T>, StoreError<T>>
+    where
+        F: FnOnce(Idx) -> Result<SlotTuple<T>>,
+    {
         // blocks should never be left in a full state... If it is filled during an insert, then a new block should be created
 
         let block = inner
@@ -143,20 +160,20 @@ impl<T> Store<T> {
 
         let mut block_inner = block.inner.write();
 
-        let res = block._insert_one(&mut block_inner, tuple)?;
+        let res = block.insert_one_with(&mut block_inner, f)?;
 
         if block_inner.is_full() {
-            if let Some(idx) = block_inner.meta.take_next_block_idx() {
-                inner.meta.cur_block = idx;
+            if let Some(index) = block_inner.meta.take_next_block_index() {
+                inner.meta.cur_block = index;
             } else {
                 drop(block_inner);
 
-                let idx = inner.meta.block_count.get();
+                let index = ThinIdx::new_validated(inner.meta.block_count.get())?;
 
-                Self::_create_block(&mut inner, idx)
+                Self::_create_block(&mut inner, index)
                     .map_err(|e| StoreError::BlockCreationError(BlockCreationError { error: e }))?;
 
-                inner.meta.cur_block = idx;
+                inner.meta.cur_block = index;
             }
         }
 
@@ -174,14 +191,14 @@ impl<T> Store<T> {
 
         if let Some(high) = high {
             if low == 0 && high == 0 {
-                return Err(StoreError::InsertError(InsertError::NoValues));
+                return Ok(InsertState::Done(Vec::new()));
             }
         }
 
         let mut inner = self.0.write();
         let mut all_errors = Vec::new();
         let mut all_handles = Vec::with_capacity(high.unwrap_or(low));
-        let mut idx = 0;
+        let mut index = 0;
 
         loop {
             let block = inner
@@ -189,7 +206,7 @@ impl<T> Store<T> {
                 .get(&inner.meta.cur_block)
                 .ok_or(StoreError::BlockNotFound)?;
 
-            match block.insert(iter.into_iter(), idx) {
+            match block.insert(iter.into_iter(), index) {
                 Ok(block::InsertState::Done(handles)) => {
                     inner.meta.item_count += handles.len();
 
@@ -200,7 +217,7 @@ impl<T> Store<T> {
                     handles,
                     iter: rest,
                 }) => {
-                    idx += errors.len() + handles.len();
+                    index += errors.len() + handles.len();
 
                     if !errors.is_empty() {
                         inner.meta.item_count += handles.len();
@@ -213,22 +230,22 @@ impl<T> Store<T> {
                         let mut block_inner = block.inner.write();
 
                         // NOTE: we know the block is full but there is still more data to insert
-                        if let Some(idx) = block_inner.meta.take_next_block_idx() {
+                        if let Some(index) = block_inner.meta.take_next_block_index() {
                             drop(block_inner);
 
                             inner.meta.item_count += handles.len();
-                            inner.meta.cur_block = idx;
+                            inner.meta.cur_block = index;
                         } else {
                             drop(block_inner);
 
-                            let idx = inner.meta.block_count.get();
+                            let index = ThinIdx::new_validated(inner.meta.block_count.get())?;
 
-                            Self::_create_block(&mut inner, idx).map_err(|e| {
+                            Self::_create_block(&mut inner, index).map_err(|e| {
                                 StoreError::BlockCreationError(BlockCreationError { error: e })
                             })?;
 
                             inner.meta.item_count += handles.len();
-                            inner.meta.cur_block = idx;
+                            inner.meta.cur_block = index;
                         }
                     }
                 }
@@ -308,7 +325,7 @@ mod test {
     }
 
     #[test]
-    fn mvp() -> Result<()> {
+    fn test_insert() -> Result<()> {
         #[derive(Debug)]
         struct Item {
             pub a: O64,
@@ -328,7 +345,7 @@ mod test {
             .insert(
                 iter::repeat_with(move || {
                     (
-                        RecordId::new(table),
+                        None,
                         Item {
                             a: O64::new(),
                             b: O64::new(),

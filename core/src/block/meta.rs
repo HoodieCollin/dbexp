@@ -1,18 +1,18 @@
 use anyhow::Result;
 use primitives::{
     byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
-    impl_access_bytes_for_into_bytes_type,
+    impl_access_bytes_for_into_bytes_type, ThinIdx,
 };
 
-use crate::{block::config::BlockConfig, object_ids::TableId, slot::GAP_HEAD};
+use crate::{block::config::BlockConfig, object_ids::TableId};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockMeta {
-    pub idx: usize,
+    pub index: ThinIdx,
     pub length: usize,
-    pub gap_tail: usize,
+    pub gap_tail: Option<ThinIdx>,
     pub gap_count: usize,
-    pub next_block: usize,
+    pub next_block: Option<ThinIdx>,
     pub table: TableId,
     pub config: BlockConfig,
 }
@@ -21,20 +21,20 @@ impl std::fmt::Debug for BlockMeta {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut d = f.debug_struct("BlockMeta");
 
-        d.field("idx", &self.idx).field("length", &self.length);
+        d.field("index", &self.index).field("length", &self.length);
 
-        if self.gap_tail != GAP_HEAD {
-            d.field("gap_tail", &self.gap_tail);
+        if let Some(gap_tail) = self.gap_tail {
+            d.field("gap_tail", &gap_tail);
         } else {
-            d.field("gap_tail", &Option::<usize>::None);
+            d.field("gap_tail", &Option::<ThinIdx>::None);
         }
 
         d.field("gap_count", &self.gap_count);
 
-        if self.next_block != GAP_HEAD {
-            d.field("next_block", &self.next_block);
+        if let Some(next_block) = self.next_block {
+            d.field("next_block", &next_block);
         } else {
-            d.field("next_block", &Option::<usize>::None);
+            d.field("next_block", &Option::<ThinIdx>::None);
         }
 
         d.field("config", &self.config).finish()
@@ -45,7 +45,7 @@ impl_access_bytes_for_into_bytes_type!(BlockMeta);
 
 impl IntoBytes for BlockMeta {
     fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()> {
-        x.encode(self.idx)?;
+        x.encode(self.index)?;
         x.encode(self.length)?;
         x.encode(self.gap_tail)?;
         x.encode(self.gap_count)?;
@@ -58,7 +58,7 @@ impl IntoBytes for BlockMeta {
 
 impl FromBytes for BlockMeta {
     fn decode_bytes(this: &mut Self, x: &mut ByteDecoder<'_>) -> Result<()> {
-        x.decode(&mut this.idx)?;
+        x.decode(&mut this.index)?;
         x.decode(&mut this.length)?;
         x.decode(&mut this.gap_tail)?;
         x.decode(&mut this.gap_count)?;
@@ -70,13 +70,13 @@ impl FromBytes for BlockMeta {
 }
 
 impl BlockMeta {
-    pub fn new(idx: usize, table: TableId, config: Option<BlockConfig>) -> Self {
+    pub fn new(index: impl Into<ThinIdx>, table: TableId, config: Option<BlockConfig>) -> Self {
         Self {
-            idx,
+            index: index.into(),
             length: 0,
-            gap_tail: GAP_HEAD,
+            gap_tail: ThinIdx::NIL,
             gap_count: 0,
-            next_block: GAP_HEAD,
+            next_block: ThinIdx::NIL,
             table,
             config: config.unwrap_or_default(),
         }
@@ -98,15 +98,21 @@ impl BlockMeta {
         self.config.block_capacity()
     }
 
-    #[must_use]
-    pub(crate) fn take_next_block_idx(&mut self) -> Option<usize> {
-        let idx = self.next_block;
-
-        if idx == GAP_HEAD {
-            None
+    pub fn next_available_index(&self) -> ThinIdx {
+        if self.gap_count > 0 {
+            self.gap_tail.unwrap()
         } else {
-            self.next_block = GAP_HEAD;
-            Some(idx)
+            self.index + 1
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn take_next_block_index(&mut self) -> Option<ThinIdx> {
+        if let Some(index) = self.next_block {
+            self.next_block = ThinIdx::NIL;
+            Some(index)
+        } else {
+            None
         }
     }
 }

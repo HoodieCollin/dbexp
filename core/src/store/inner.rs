@@ -7,7 +7,10 @@ use std::{
 use anyhow::Result;
 
 use indexmap::IndexMap;
-use primitives::byte_encoding::{FromBytes, IntoBytes};
+use primitives::{
+    byte_encoding::{FromBytes, IntoBytes},
+    ThinIdx,
+};
 
 use crate::{
     object_ids::TableId,
@@ -17,7 +20,7 @@ use crate::{
 pub struct StoreInner<T: 'static> {
     pub(super) meta: StoreMeta,
     pub(super) file: Option<Arc<File>>,
-    pub(super) blocks: IndexMap<usize, Block<T>>,
+    pub(super) blocks: IndexMap<ThinIdx, Block<T>>,
 }
 
 impl<T> StoreInner<T> {
@@ -100,5 +103,26 @@ impl<T> StoreInner<T> {
             file: Some(Arc::new(file)),
             blocks: IndexMap::with_capacity(meta.block_count.get()),
         })
+    }
+
+    pub fn meta(&self) -> &StoreMeta {
+        &self.meta
+    }
+
+    pub fn blocks(&self) -> &IndexMap<ThinIdx, Block<T>> {
+        &self.blocks
+    }
+
+    pub fn blocks_mut(&mut self) -> &mut IndexMap<ThinIdx, Block<T>> {
+        &mut self.blocks
+    }
+
+    pub fn next_available_index(&self) -> ThinIdx {
+        let block = self
+            .blocks
+            .get(&self.meta.cur_block)
+            .expect("cur_block should always exist");
+
+        block.index() * block.capacity() + block.next_available_index()
     }
 }

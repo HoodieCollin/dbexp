@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 use anyhow::Result;
 use primitives::{
     byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
-    impl_access_bytes_for_into_bytes_type,
+    impl_access_bytes_for_into_bytes_type, ThinIdx,
 };
 
 use crate::{block::Block, object_ids::TableId, store::config::StoreConfig};
@@ -14,7 +14,7 @@ pub struct StoreMeta {
     pub block_count: NonZeroUsize,
     pub item_count: usize,
     pub gap_count: usize,
-    pub cur_block: usize,
+    pub cur_block: ThinIdx,
     pub config: StoreConfig,
 }
 
@@ -27,7 +27,7 @@ impl Default for StoreMeta {
             block_count: config.initial_block_count,
             item_count: 0,
             gap_count: 0,
-            cur_block: 0,
+            cur_block: ThinIdx::new(0),
             config,
         }
     }
@@ -69,7 +69,7 @@ impl StoreMeta {
             block_count: config.initial_block_count,
             item_count: 0,
             gap_count: 0,
-            cur_block: 0,
+            cur_block: ThinIdx::new(0),
             config,
         }
     }

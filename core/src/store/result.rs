@@ -24,8 +24,6 @@ pub enum InsertError<T> {
         #[source]
         error: anyhow::Error,
     },
-    #[error("no values to insert")]
-    NoValues,
     #[error(transparent)]
     Unexpected(#[from] anyhow::Error),
 }
@@ -36,7 +34,6 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NoValues => return std::fmt::Debug::fmt("InsertError: no values to insert", f),
             Self::Unexpected(e) => return std::fmt::Debug::fmt(e, f),
             _ => {
                 // continue
@@ -44,7 +41,7 @@ where
         }
 
         struct ItemDetail<U> {
-            record: RecordId,
+            record: Option<RecordId>,
             data: U,
         }
 
@@ -76,7 +73,7 @@ where
                     d.field(
                         "item",
                         &ItemDetail {
-                            record: *record,
+                            record: record.clone(),
                             data,
                         },
                     );
@@ -95,7 +92,6 @@ where
                     },
                 );
             }
-            Self::NoValues => unreachable!("handled above"),
             Self::Unexpected(..) => unreachable!("handled above"),
         }
 
@@ -127,8 +123,29 @@ pub enum StoreError<T> {
     Unexpected(#[from] anyhow::Error),
 }
 
-impl<T> StoreError<T> {
+impl<T: std::fmt::Debug> StoreError<T> {
     pub fn thread_safe(self) -> anyhow::Error {
-        anyhow::Error::msg(self.to_string())
+        match self {
+            Self::BlockCreationError(e) => e.error,
+            Self::Unexpected(e) => e,
+            Self::BlockNotFound => anyhow::Error::msg(self.to_string()),
+            Self::InsertError(e) => {
+                let s = e.to_string();
+
+                match e {
+                    InsertError::Unexpected(e) => e,
+                    InsertError::TableMismatch { .. } => anyhow::Error::msg(s),
+                    InsertError::AlreadyExists { .. } => anyhow::Error::msg(s),
+                    InsertError::BlockFull { item, .. } => match item {
+                        Some((record, data)) => anyhow::Error::msg(format!(
+                            "BlockFull: record: {:?}, data: {:?}",
+                            record, data
+                        )),
+                        None => anyhow::Error::msg(s),
+                    },
+                    InsertError::InvalidValue { .. } => anyhow::Error::msg(s),
+                }
+            }
+        }
     }
 }
