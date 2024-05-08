@@ -1,7 +1,7 @@
-pub mod column;
-pub mod record;
-pub mod table;
+pub mod column_id;
+pub mod record_id;
+pub mod table_id;
 
-pub use column::ColumnId;
-pub use record::{thin::ThinRecordId, RecordId};
-pub use table::TableId;
+pub use column_id::ColumnId;
+pub use record_id::{thin::ThinRecordId, RecordId};
+pub use table_id::TableId;

@@ -9,7 +9,7 @@ use anyhow::Result;
 use dbexp::{
     indices::{ColumnIndices, MAX_COLUMNS},
     object_ids::TableId,
-    record_store::{RecordSlotHandle, RecordStore},
+    records::{RecordHandle, Records},
     slot::SlotHandle,
     store::{Store, StoreConfig, StoreError},
     values::DataValue,
@@ -26,13 +26,13 @@ use primitives::{
 pub enum InsertError {
     #[error("record has too many values")]
     ColumnLengthMismatch {
-        record_handle: RecordSlotHandle,
+        record_handle: RecordHandle,
         expected: usize,
         values: Vec<Option<DataValue>>,
     },
     #[error("record value is invalid")]
     InvalidValue {
-        record_handle: RecordSlotHandle,
+        record_handle: RecordHandle,
         column_handles: Vec<SlotHandle<DataValue>>,
         column: usize,
         values: Vec<Option<DataValue>>,
@@ -40,16 +40,16 @@ pub enum InsertError {
         error: anyhow::Error,
     },
     #[error("no values to insert")]
-    NoValues { record_handle: RecordSlotHandle },
+    NoValues { record_handle: RecordHandle },
     #[error(transparent)]
     Unexpected(#[from] anyhow::Error),
 }
 
 #[derive(Debug)]
 pub enum InsertState {
-    Done(Vec<RecordSlotHandle>),
+    Done(Vec<RecordHandle>),
     Partial {
-        handles: Vec<(usize, RecordSlotHandle, Vec<SlotHandle<DataValue>>)>,
+        handles: Vec<(usize, RecordHandle, Vec<SlotHandle<DataValue>>)>,
         errors: Vec<(usize, InsertError)>,
     },
 }
@@ -343,7 +343,7 @@ impl TableConfig {
 pub struct Table {
     id: TableId,
     config: TableConfig,
-    records: RecordStore,
+    records: Records,
     columns: SharedObject<IndexMap<usize, Store<DataValue>>>,
     columns_by_name: IndexMap<InternalString, usize>,
 }
@@ -356,7 +356,7 @@ impl Table {
     ) -> Result<Self> {
         let column_count = config.columns.len();
         let columns = IndexMap::with_capacity(column_count);
-        let records = RecordStore::new(Some(id), Some(config.into()), column_count)?;
+        let records = Records::new(Some(id), Some(config.into()), column_count)?;
 
         Ok(Self {
             id,
@@ -518,7 +518,7 @@ impl Table {
         Ok(stores)
     }
 
-    pub fn insert_one(&self, values: Vec<Option<DataValue>>) -> Result<RecordSlotHandle> {
+    pub fn insert_one(&self, values: Vec<Option<DataValue>>) -> Result<RecordHandle> {
         let val_count = values.len();
 
         // Empty check

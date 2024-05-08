@@ -1,15 +1,14 @@
-use std::{num::NonZeroUsize, ops::RangeBounds};
+use std::ops::RangeBounds;
 
 use anyhow::Result;
 
 use primitives::{
-    byte_encoding::IntoBytes,
     shared_object::{SharedObject, SharedObjectReadGuard, SharedObjectWriteGuard},
     ThinIdx,
 };
 
 use crate::{
-    block::{self, Block, BlockConfig},
+    block::{self, Block},
     object_ids::{RecordId, TableId},
     slot::{SlotHandle, SlotTuple},
 };
@@ -56,33 +55,6 @@ impl<T> Store<T> {
         Ok(store)
     }
 
-    fn _create_block(inner: &mut StoreInner<T>, index: ThinIdx) -> Result<()> {
-        let table = inner.meta.table;
-        let block_capacity = inner.meta.config.block_capacity.get();
-
-        if let Some(file) = inner.file.as_ref().cloned() {
-            let block_capacity_as_bytes = block_capacity * Block::<T>::SLOT_BYTE_COUNT;
-            let offset = StoreMeta::BYTE_COUNT + (index * block_capacity_as_bytes);
-
-            inner
-                .blocks
-                .insert(index, block::Block::new(index, table, file, offset)?);
-        } else {
-            inner.blocks.insert(
-                index,
-                block::Block::new_anon(index, table, Some(BlockConfig::new(block_capacity)?))?,
-            );
-        }
-
-        let new_block_count = inner.blocks.len();
-
-        inner.meta.block_count = NonZeroUsize::new(new_block_count).ok_or_else(|| {
-            anyhow::anyhow!("block count should never be zero after creating a block")
-        })?;
-
-        Ok(())
-    }
-
     pub fn load(&self, r: impl RangeBounds<usize>) -> Result<()> {
         let inner = self.0.upgradable();
 
@@ -91,36 +63,23 @@ impl<T> Store<T> {
             return Ok(());
         }
 
-        let start = ThinIdx::new_validated(match r.start_bound() {
-            std::ops::Bound::Included(&start) => start,
-            std::ops::Bound::Excluded(&start) => start + 1,
-            std::ops::Bound::Unbounded => 0,
-        })?;
+        let (start, end_inclusive) = inner._resolve_range(r)?;
+        let mut needed = None;
 
-        let end = ThinIdx::new_validated(match r.end_bound() {
-            std::ops::Bound::Included(&end) => end,
-            std::ops::Bound::Excluded(&end) => end - 1,
-            std::ops::Bound::Unbounded => ThinIdx::MAX,
-        })?;
+        for (index, block) in inner._get_block_range(start, end_inclusive) {
+            if block.is_none() {
+                if needed.is_none() {
+                    needed = Some(Vec::with_capacity((end_inclusive - start + 1).into_usize()));
+                }
 
-        let end = std::cmp::min(end, inner.meta.item_count.into());
-        let block_capacity = inner.meta.config.block_capacity;
-
-        let start_block_index = start / block_capacity;
-        let mut end_block_index = end / block_capacity;
-
-        if end % block_capacity == 0 && end > 0 {
-            end_block_index -= 1;
+                needed.as_mut().unwrap().push(index);
+            }
         }
 
         let mut inner = inner.upgrade();
 
-        for index in start_block_index..=end_block_index {
-            if inner.blocks.contains_key(&index) {
-                continue;
-            }
-
-            Self::_create_block(&mut inner, index)?;
+        for index in needed.unwrap_or_default() {
+            inner._create_block(index)?;
         }
 
         Ok(())
@@ -145,7 +104,7 @@ impl<T> Store<T> {
 
     pub fn insert_one_with(
         &self,
-        mut inner: &mut StoreInner<T>,
+        inner: &mut StoreInner<T>,
         record: Option<RecordId>,
         data: T,
     ) -> Result<SlotHandle<T>, StoreError<T>> {
@@ -168,7 +127,8 @@ impl<T> Store<T> {
 
                 let index = ThinIdx::new_validated(inner.meta.block_count.get())?;
 
-                Self::_create_block(&mut inner, index)
+                inner
+                    ._create_block(index)
                     .map_err(|e| StoreError::BlockCreationError(BlockCreationError { error: e }))?;
 
                 inner.meta.cur_block = index;
@@ -238,7 +198,7 @@ impl<T> Store<T> {
 
                             let index = ThinIdx::new_validated(inner.meta.block_count.get())?;
 
-                            Self::_create_block(&mut inner, index).map_err(|e| {
+                            inner._create_block(index).map_err(|e| {
                                 StoreError::BlockCreationError(BlockCreationError { error: e })
                             })?;
 
@@ -283,8 +243,11 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Store<T> {
 #[allow(dead_code)]
 #[cfg(test)]
 mod test {
-    use primitives::{byte_encoding::FromBytes, O64};
-    use std::iter;
+    use primitives::{
+        byte_encoding::{FromBytes, IntoBytes},
+        O64,
+    };
+    use std::{iter, num::NonZeroUsize};
 
     use super::*;
 

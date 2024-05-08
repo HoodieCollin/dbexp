@@ -1,54 +1,80 @@
-use std::{num::NonZeroUsize, ops::RangeBounds};
+use std::ops::RangeBounds;
 
 use anyhow::Result;
 
 use primitives::{
-    byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
     shared_object::{SharedObject, SharedObjectReadGuard, SharedObjectWriteGuard},
-    Idx, ThinIdx,
+    ThinIdx,
 };
 
 use crate::{
-    indices::CellIdx,
-    object_ids::{ColumnId, RecordId, TableId},
+    block::{self, Block},
+    object_ids::{RecordId, TableId},
     slot::{SlotHandle, SlotTuple},
-    store::{inner::StoreInner, InsertError, InsertState, StoreConfig, StoreMeta},
-    values::DataValue,
 };
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct VarcapRelay {
-    column: ColumnId,
-    cell: CellIdx,
+use self::{config::VarcapConfig, inner::VarcapInner};
+
+pub mod config;
+pub mod inner;
+pub mod relay;
+
+pub struct Varcap(SharedObject<VarcapInner>);
+
+impl Clone for Varcap {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
 }
 
-impl IntoBytes for VarcapRelay {
-    fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()> {
-        x.encode(self.column)?;
-        x.encode(self.cell)?;
+impl Varcap {
+    pub fn new(table: Option<TableId>, config: VarcapConfig) -> Result<Self> {
+        let varcap = Self(SharedObject::new(VarcapInner::new(table, config)?));
+
+        if config.persistance.is_empty() {
+            varcap.load(..)?;
+        }
+
+        Ok(varcap)
+    }
+
+    pub fn load(&self, r: impl RangeBounds<usize>) -> Result<()> {
+        let inner = self.0.upgradable();
+
+        // short-circuit if all blocks are already loaded
+        if inner.relay.blocks.len() == inner.relay.meta.block_count.get() {
+            return Ok(());
+        }
+
+        let (start, end_inclusive) = inner.relay._resolve_range(r)?;
+        let mut needed = None;
+
+        for (index, block) in inner.relay._get_block_range(start, end_inclusive) {
+            if block.is_none() {
+                if needed.is_none() {
+                    needed = Some(Vec::with_capacity((end_inclusive - start + 1).into_usize()));
+                }
+
+                needed.as_mut().unwrap().push(index);
+            }
+        }
+
+        let mut inner = inner.upgrade();
+
+        for index in needed.unwrap_or_default() {
+            inner.relay._create_block(index)?;
+        }
+
         Ok(())
     }
-}
 
-impl FromBytes for VarcapRelay {
-    fn decode_bytes(this: &mut Self, x: &mut ByteDecoder<'_>) -> Result<()> {
-        x.decode(&mut this.column)?;
-        x.decode(&mut this.cell)?;
-        Ok(())
-    }
-}
-
-impl VarcapRelay {
-    pub fn new(column: ColumnId, cell: CellIdx) -> Self {
-        Self { column, cell }
+    pub fn read(&self) -> SharedObjectReadGuard<VarcapInner> {
+        self.0.upgradable()
     }
 
-    pub fn column(&self) -> ColumnId {
-        self.column
+    pub fn write(&self) -> SharedObjectWriteGuard<VarcapInner> {
+        self.0.upgradable().upgrade()
     }
 
-    pub fn cell(&self) -> CellIdx {
-        self.cell
-    }
+    // TODO: implement insert methods
 }

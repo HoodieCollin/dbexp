@@ -9,17 +9,17 @@ use crate::{
     store::{InsertError, InsertState, Store, StoreConfig, StoreError},
 };
 
-pub type RecordStoreError = StoreError<ColumnIndices>;
-pub type RecordSlotHandle = SlotHandle<ColumnIndices>;
+pub type RecordsError = StoreError<ColumnIndices>;
+pub type RecordHandle = SlotHandle<ColumnIndices>;
 
 #[derive(Debug, Clone)]
-pub struct RecordStore {
+pub struct Records {
     store: Store<ColumnIndices>,
     table: TableId,
     columns: NonZeroUsize,
 }
 
-impl RecordStore {
+impl Records {
     #[must_use]
     pub fn new(
         table: Option<TableId>,
@@ -47,7 +47,7 @@ impl RecordStore {
     }
 
     #[must_use]
-    pub fn insert_one(&self) -> Result<(RecordId, RecordSlotHandle), RecordStoreError> {
+    pub fn insert_one(&self) -> Result<(RecordId, RecordHandle), RecordsError> {
         let table = self.table;
         let columns = self.columns;
 
@@ -59,10 +59,7 @@ impl RecordStore {
     }
 
     #[must_use]
-    pub fn insert(
-        &self,
-        count: usize,
-    ) -> Result<Vec<(RecordId, RecordSlotHandle)>, RecordStoreError> {
+    pub fn insert(&self, count: usize) -> Result<Vec<(RecordId, RecordHandle)>, RecordsError> {
         if count == 0 {
             return Ok(Vec::new());
         }
@@ -125,7 +122,7 @@ impl RecordStore {
     pub fn insert_map<I, T>(
         &self,
         iter: I,
-    ) -> Result<Vec<(usize, RecordId, RecordSlotHandle, Vec<T>)>, RecordStoreError>
+    ) -> Result<Vec<(usize, RecordId, RecordHandle, Vec<T>)>, RecordsError>
     where
         I: IntoIterator<Item = Vec<T>>,
     {
