@@ -21,6 +21,7 @@
     "Strftime",
     "thiserror",
     "uninit",
+    "varcap",
     "varlen"
   ],
   "[rust]": {

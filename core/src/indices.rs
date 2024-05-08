@@ -3,7 +3,8 @@ use std::num::NonZeroUsize;
 use anyhow::Result;
 use primitives::{
     byte_encoding::{AccessBytes, ByteDecoder, ByteEncoder, FromBytes, IntoBytes, ScalarFromBytes},
-    Idx, ThinIdx,
+    idx::MaybeThinIdx,
+    ThinIdx,
 };
 
 use crate::{slot::SlotHandle, values::DataValue};
@@ -14,7 +15,7 @@ pub const MAX_COLUMNS: usize = 32;
 #[repr(C)]
 pub struct CellIdx {
     pub block: ThinIdx,
-    pub row: Idx,
+    pub row: MaybeThinIdx,
 }
 
 impl AccessBytes for CellIdx {
@@ -42,10 +43,14 @@ impl ScalarFromBytes for CellIdx {
 
 impl std::fmt::Debug for CellIdx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CellIndex")
-            .field("block", &self.block)
-            .field("row", &self.row)
-            .finish()
+        if !f.alternate() {
+            f.debug_list().entry(&self.block).entry(&self.row).finish()
+        } else {
+            f.debug_struct("CellIndex")
+                .field("block", &self.block)
+                .field("row", &self.row)
+                .finish()
+        }
     }
 }
 
@@ -58,13 +63,30 @@ impl From<SlotHandle<DataValue>> for CellIdx {
     }
 }
 
+impl PartialOrd for CellIdx {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let block_cmp = self.block.cmp(&other.block);
+
+        match block_cmp {
+            std::cmp::Ordering::Equal => Some(self.row.cmp(&other.row)),
+            _ => Some(block_cmp),
+        }
+    }
+}
+
+impl Ord for CellIdx {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
 impl CellIdx {
     pub const INVALID: Self = Self {
         block: ThinIdx::INVALID,
-        row: Idx::INVALID,
+        row: MaybeThinIdx::INVALID,
     };
 
-    pub fn new(block: ThinIdx, row: Idx) -> Self {
+    pub fn new(block: ThinIdx, row: MaybeThinIdx) -> Self {
         Self { block, row }
     }
 
@@ -79,7 +101,7 @@ impl CellIdx {
 
     pub fn from_array(bytes: [u8; 16]) -> Option<Self> {
         let block = ThinIdx::from_array(bytes[..8].try_into().unwrap())?;
-        let row = Idx::from_array(bytes[8..].try_into().unwrap())?;
+        let row = ThinIdx::from_array(bytes[8..].try_into().unwrap())?.into_maybe_thin();
 
         Some(Self { block, row })
     }
@@ -88,7 +110,7 @@ impl CellIdx {
         match bytes.try_into() {
             Ok(bytes) => {
                 let block = ThinIdx::try_from_array(&bytes[..8])?;
-                let row = Idx::try_from_array(&bytes[8..])?;
+                let row = ThinIdx::try_from_array(&bytes[8..])?.into_maybe_thin();
 
                 Ok(Self { block, row })
             }
@@ -100,7 +122,7 @@ impl CellIdx {
         self.block
     }
 
-    pub fn row(&self) -> Idx {
+    pub fn row(&self) -> MaybeThinIdx {
         self.row
     }
 }

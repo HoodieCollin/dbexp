@@ -4,10 +4,10 @@
 #![feature(generic_const_exprs)]
 
 pub mod block;
-pub mod column_indices;
+pub mod indices;
 pub mod object_ids;
 pub mod record_store;
 pub mod slot;
 pub mod store;
 pub mod values;
-pub mod varlen;
+pub mod varcap;

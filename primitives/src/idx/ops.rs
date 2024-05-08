@@ -1,8 +1,10 @@
 use crate::{Idx, ThinIdx};
 
+use super::MaybeThinIdx;
+
 macro_rules! impl_ops {
     (
-        $ty:ty => $other:ty;
+        $ty:ty => $other1:ty, $other2:ty;
         $($trait:ident $fn:ident $op:tt);+ $(;)?
     ) => {
         $(
@@ -46,10 +48,18 @@ macro_rules! impl_ops {
                 }
             }
 
-            impl std::ops::$trait<$other> for $ty {
+            impl std::ops::$trait<$other1> for $ty {
                 type Output = Self;
 
-                fn $fn(self, rhs: $other) -> Self {
+                fn $fn(self, rhs: $other1) -> Self {
+                    Self::new(self.into_usize() $op rhs.into_usize())
+                }
+            }
+
+            impl std::ops::$trait<$other2> for $ty {
+                type Output = Self;
+
+                fn $fn(self, rhs: $other2) -> Self {
                     Self::new(self.into_usize() $op rhs.into_usize())
                 }
             }
@@ -173,7 +183,7 @@ macro_rules! impl_ops {
 
 macro_rules! impl_assign_ops {
     (
-        $ty:ty => $other:ty;
+        $ty:ty => $other1:ty, $other2:ty;
         $($trait:ident $fn:ident $op:tt);+ $(;)?
     ) => {
         $(
@@ -201,8 +211,14 @@ macro_rules! impl_assign_ops {
                 }
             }
 
-            impl std::ops::$trait<$other> for $ty {
-                fn $fn(&mut self, rhs: $other) {
+            impl std::ops::$trait<$other1> for $ty {
+                fn $fn(&mut self, rhs: $other1) {
+                    *self = Self::new(self.into_usize() $op rhs.into_usize());
+                }
+            }
+
+            impl std::ops::$trait<$other2> for $ty {
+                fn $fn(&mut self, rhs: $other2) {
                     *self = Self::new(self.into_usize() $op rhs.into_usize());
                 }
             }
@@ -211,7 +227,7 @@ macro_rules! impl_assign_ops {
 }
 
 impl_ops! {
-    Idx => ThinIdx;
+    Idx => ThinIdx, MaybeThinIdx;
     Add add +;
     Sub sub -;
     Mul mul *;
@@ -220,7 +236,16 @@ impl_ops! {
 }
 
 impl_ops! {
-    ThinIdx => Idx;
+    ThinIdx => Idx, MaybeThinIdx;
+    Add add +;
+    Sub sub -;
+    Mul mul *;
+    Div div /;
+    Rem rem %;
+}
+
+impl_ops! {
+    MaybeThinIdx => Idx, ThinIdx;
     Add add +;
     Sub sub -;
     Mul mul *;
@@ -229,7 +254,7 @@ impl_ops! {
 }
 
 impl_assign_ops! {
-    Idx => ThinIdx;
+    Idx => ThinIdx, MaybeThinIdx;
     AddAssign add_assign +;
     SubAssign sub_assign -;
     MulAssign mul_assign *;
@@ -238,7 +263,16 @@ impl_assign_ops! {
 }
 
 impl_assign_ops! {
-    ThinIdx => Idx;
+    ThinIdx => Idx, MaybeThinIdx;
+    AddAssign add_assign +;
+    SubAssign sub_assign -;
+    MulAssign mul_assign *;
+    DivAssign div_assign /;
+    RemAssign rem_assign %;
+}
+
+impl_assign_ops! {
+    MaybeThinIdx => Idx, ThinIdx;
     AddAssign add_assign +;
     SubAssign sub_assign -;
     MulAssign mul_assign *;

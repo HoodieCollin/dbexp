@@ -3,15 +3,11 @@
 use anyhow::Result;
 
 use primitives::{
-    byte_encoding::IntoBytes, number::Builtin, Bytes, DataType, ExpectedType, Number, Text,
-    Timestamp, O16, O32, O64,
+    number::Builtin, Bytes, DataType, ExpectedType, Number, Text, Timestamp, O16, O32, O64,
 };
 
-use crate::slot::SlotIndirection;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DataValue {
-    Indirection(SlotIndirection),
     O16(O16),
     O32(O32),
     O64(O64),
@@ -24,6 +20,36 @@ pub enum DataValue {
 
 unsafe impl Send for DataValue {}
 unsafe impl Sync for DataValue {}
+
+impl std::fmt::Debug for DataValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DataValue::O16(val) => write!(f, "O16({:?})", val),
+            DataValue::O32(val) => write!(f, "O32({:?})", val),
+            DataValue::O64(val) => write!(f, "O64({:?})", val),
+            DataValue::Bool(val) => write!(f, "Bool({:?})", val),
+            DataValue::Number(val) => write!(f, "Number({:?})", val),
+            DataValue::Timestamp(val) => write!(f, "Timestamp({:?})", val),
+            DataValue::Text(val) => write!(f, "Text({:?})", val),
+            DataValue::Bytes(val) => write!(f, "Bytes({:?})", val),
+        }
+    }
+}
+
+impl std::fmt::Display for DataValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DataValue::O16(val) => write!(f, "{}", val),
+            DataValue::O32(val) => write!(f, "{}", val),
+            DataValue::O64(val) => write!(f, "{}", val),
+            DataValue::Bool(val) => write!(f, "{}", val),
+            DataValue::Number(val) => write!(f, "{}", val),
+            DataValue::Timestamp(val) => write!(f, "{}", val),
+            DataValue::Text(val) => write!(f, "{}", val),
+            DataValue::Bytes(val) => write!(f, "{}", val),
+        }
+    }
+}
 
 impl PartialOrd<Option<DataValue>> for DataValue {
     fn partial_cmp(&self, other: &Option<DataValue>) -> Option<std::cmp::Ordering> {
@@ -64,12 +90,6 @@ impl PartialEq<DataValue> for Option<DataValue> {
 impl From<&DataValue> for ExpectedType {
     fn from(val: &DataValue) -> Self {
         val.get_type()
-    }
-}
-
-impl From<SlotIndirection> for DataValue {
-    fn from(value: SlotIndirection) -> Self {
-        DataValue::Indirection(value)
     }
 }
 
@@ -214,7 +234,6 @@ impl From<Bytes> for DataValue {
 impl DataValue {
     pub fn get_type(&self) -> ExpectedType {
         match self {
-            DataValue::Indirection(x) => x.column().kind(),
             DataValue::O16(_) => ExpectedType::new(DataType::O16),
             DataValue::O32(_) => ExpectedType::new(DataType::O32),
             DataValue::O64(_) => ExpectedType::new(DataType::O64),
@@ -231,10 +250,6 @@ impl DataValue {
         use std::ptr;
 
         match self {
-            DataValue::Indirection(val) => {
-                let arr = val.into_bytes()?;
-                dest.copy_from_slice(&arr);
-            }
             DataValue::O16(val) => {
                 let arr = val.into_array();
                 dest.copy_from_slice(&arr);

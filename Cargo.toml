@@ -85,7 +85,7 @@
 [dependencies]
   anyhow      = { workspace = true }
   clap        = { version = "4.5.4", features = ["derive"] }
-  core        = { path = "./core" }
+  dbexp       = { package = "core", path = "./core" }
   hcl_schemas = { path = "./hcl_schemas" }
   indexmap    = { workspace = true }
   mem_table   = { path = "./mem_table" }

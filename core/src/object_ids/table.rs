@@ -3,9 +3,7 @@ use primitives::byte_encoding::{AccessBytes, ScalarFromBytes};
 use primitives::oid::O32;
 use serde::{Deserialize, Serialize};
 
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct TableId(O32);
 
@@ -32,6 +30,18 @@ impl ScalarFromBytes for TableId {
     }
 }
 
+impl std::fmt::Debug for TableId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TableId({:?})", self.0)
+    }
+}
+
+impl std::fmt::Display for TableId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl TableId {
     pub const INVALID: Self = Self(O32::INVALID);
     pub const NIL: Option<Self> = None;
@@ -50,5 +60,13 @@ impl TableId {
 
     pub fn try_from_array(bytes: impl TryInto<[u8; 4]>) -> Result<Self> {
         Ok(Self(O32::try_from_array(bytes)?))
+    }
+
+    pub fn into_raw(self) -> O32 {
+        self.0
+    }
+
+    pub fn from_raw(raw: O32) -> Self {
+        Self(raw)
     }
 }

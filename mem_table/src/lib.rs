@@ -7,7 +7,7 @@ use std::{any::Any, mem::MaybeUninit, num::NonZeroUsize, ops::RangeBounds, path:
 
 use anyhow::Result;
 use dbexp::{
-    column_indices::{ColumnIndices, MAX_COLUMNS},
+    indices::{ColumnIndices, MAX_COLUMNS},
     object_ids::TableId,
     record_store::{RecordSlotHandle, RecordStore},
     slot::SlotHandle,
@@ -641,10 +641,10 @@ impl Table {
 
             if let Some((_, _, record_handle, column_handles)) = needs_rollback {
                 for handle in column_handles {
-                    handle.remove_self()?;
+                    let _ = handle.remove_self();
                 }
 
-                record_handle.remove_self()?;
+                let _ = record_handle.remove_self();
 
                 while all_handles.len() > 0 || all_errors.len() > 0 {
                     if let Some((_, error)) = all_errors.pop() {
@@ -655,13 +655,13 @@ impl Table {
                                 ..
                             } => {
                                 for handle in column_handles {
-                                    handle.remove_self()?;
+                                    let _ = handle.remove_self();
                                 }
 
-                                record_handle.remove_self()?;
+                                let _ = record_handle.remove_self();
                             }
                             InsertError::NoValues { record_handle } => {
-                                record_handle.remove_self()?;
+                                let _ = record_handle.remove_self();
                             }
                             _ => {}
                         }
@@ -669,10 +669,10 @@ impl Table {
 
                     if let Some((_, record_handle, column_handles)) = all_handles.pop() {
                         for handle in column_handles {
-                            handle.remove_self()?;
+                            let _ = handle.remove_self();
                         }
 
-                        record_handle.remove_self()?;
+                        let _ = record_handle.remove_self();
                     }
                 }
 

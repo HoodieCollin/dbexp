@@ -1,87 +1,95 @@
 use anyhow::Result;
-use parking_lot::{
-    MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLockReadGuard, RwLockWriteGuard,
-};
-use primitives::Idx;
+use primitives::idx::MaybeThinIdx;
 
 use crate::{block::Block, object_ids::RecordId};
 
 use super::{
-    data::{SlotData, SlotDataRef},
+    data::{SlotDataMut, SlotDataRef},
     SlotTuple,
 };
 
 pub struct SlotHandle<T: 'static> {
     pub block: Block<T>,
-    pub idx: Idx,
+    pub idx: MaybeThinIdx,
 }
 
 impl<T> SlotHandle<T> {
+    pub fn ensure_idx_has_gen(self) -> Self {
+        let SlotHandle { block, idx } = self;
+        Self {
+            block,
+            idx: idx.into_upgraded(),
+        }
+    }
+
+    pub fn erase_idx_gen(self) -> Self {
+        let SlotHandle { block, idx } = self;
+        Self {
+            block,
+            idx: idx.into_downgraded(),
+        }
+    }
+
     #[must_use]
     pub fn read_with<F, R>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(MappedRwLockReadGuard<'_, SlotData<T>>) -> Result<R>,
+        F: FnOnce(SlotDataRef<'_, T>) -> Result<R>,
     {
-        let (expected_gen, slot_index) = self.idx.into_parts();
         let outer = self.block.inner.read_recursive();
-        let inner = outer.slots_by_index[slot_index].read();
+        let slot = SlotDataRef::new(&outer.slots_by_index[self.idx]);
 
-        SlotDataRef::new(&inner).check_gen(expected_gen)?;
+        if let Some(expected_gen) = self.idx.into_gen() {
+            slot.check_gen(expected_gen)?;
+        }
 
-        let guard = RwLockReadGuard::map(inner, |ptr| unsafe { ptr.as_ref() });
-
-        f(guard)
+        f(slot)
     }
 
     #[must_use]
     pub fn write_with<F, R>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(MappedRwLockWriteGuard<'_, SlotData<T>>) -> Result<R>,
+        F: FnOnce(SlotDataMut<'_, T>) -> Result<R>,
     {
-        let (expected_gen, slot_index) = self.idx.into_parts();
         let outer = self.block.inner.read_recursive();
-        let inner = outer.slots_by_index[slot_index].write();
+        let slot = SlotDataMut::new(&outer.slots_by_index[self.idx]);
 
-        SlotDataRef::new(&inner).check_gen(expected_gen)?;
+        if let Some(expected_gen) = self.idx.into_gen() {
+            slot.check_gen(expected_gen)?;
+        }
 
-        let guard = RwLockWriteGuard::map(inner, |ptr| unsafe { ptr.as_mut() });
-
-        f(guard)
+        f(slot)
     }
 
     #[must_use]
-    pub fn remove_self(self) -> Result<SlotTuple<T>> {
+    pub fn remove_self(self) -> Option<SlotTuple<T>> {
         let mut outer = self.block.inner.write();
         let prev_tail = outer.meta.gap_tail;
 
-        unsafe {
-            let (record, data) = {
-                let (expected_gen, slot_index) = self.idx.into_parts();
-                let mut inner = outer.slots_by_index[slot_index].write();
+        let (record, data) = {
+            let mut slot = SlotDataMut::new(&outer.slots_by_index[self.idx]);
 
-                SlotDataRef::new(&inner).check_gen(expected_gen)?;
+            if let Some(expected_gen) = self.idx.into_gen() {
+                // When generation id is invalid, it means the slot is no longer owned by this handle and we can't remove it.
+                slot.check_gen(expected_gen).ok()?;
+            }
 
-                let slot = inner.as_mut();
-                let data = slot.read_data_unchecked();
-                let record = slot.thin_record_id();
+            let (record, data) = unsafe { slot.read_parts()? };
+            slot.create_gap(prev_tail);
 
-                slot.create_gap(prev_tail);
+            (record, data)
+        };
 
-                (record, data)
-            };
+        outer.meta.gap_tail = Some(self.idx.into_thin());
+        outer.meta.gap_count += 1;
 
-            outer.meta.gap_tail = Some(self.idx.into_thin());
-            outer.meta.gap_count += 1;
+        let record = if let Some(thin) = record {
+            outer.index_by_record.shift_remove(&thin);
+            Some(RecordId::from_thin(thin, outer.meta.table))
+        } else {
+            None
+        };
 
-            let record = if let Some(thin) = record {
-                outer.index_by_record.shift_remove(&thin);
-                Some(RecordId::from_thin(thin, outer.meta.table))
-            } else {
-                None
-            };
-
-            Ok((record, data))
-        }
+        Some((record, data))
     }
 }
 
@@ -104,7 +112,7 @@ impl<T> Eq for SlotHandle<T> {}
 
 impl<T> PartialOrd for SlotHandle<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.idx.into_gen_id() != other.idx.into_gen_id() {
+        if self.idx.into_gen() != other.idx.into_gen() {
             None
         } else {
             Some(self.idx.into_u64().cmp(&other.idx.into_u64()))

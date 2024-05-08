@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::TableId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ColumnId(O32, TableId, ExpectedType);
 
 impl AccessBytes for ColumnId {
@@ -30,6 +30,24 @@ impl AccessBytes for ColumnId {
 impl ScalarFromBytes for ColumnId {
     fn from_bytes(bytes: &[u8]) -> Result<Self> {
         Self::try_from_array(bytes)
+    }
+}
+
+impl std::fmt::Debug for ColumnId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !f.alternate() {
+            f.debug_struct("ColumnId")
+                .field("id", &self.0.to_string())
+                .field("table", &self.1.to_string())
+                .field("kind", &self.2.into_base62())
+                .finish()
+        } else {
+            f.debug_struct("ColumnId")
+                .field("id", &self.0)
+                .field("table", &self.1)
+                .field("kind", &self.2)
+                .finish()
+        }
     }
 }
 

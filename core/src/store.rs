@@ -5,7 +5,7 @@ use anyhow::Result;
 use primitives::{
     byte_encoding::IntoBytes,
     shared_object::{SharedObject, SharedObjectReadGuard, SharedObjectWriteGuard},
-    Idx, ThinIdx,
+    ThinIdx,
 };
 
 use crate::{
@@ -140,17 +140,15 @@ impl<T> Store<T> {
         data: T,
     ) -> Result<SlotHandle<T>, StoreError<T>> {
         let mut inner = self.0.write();
-        self.insert_one_with(&mut inner, |_| Ok((record, data)))
+        self.insert_one_with(&mut inner, record, data)
     }
 
-    pub fn insert_one_with<F>(
+    pub fn insert_one_with(
         &self,
         mut inner: &mut StoreInner<T>,
-        f: F,
-    ) -> Result<SlotHandle<T>, StoreError<T>>
-    where
-        F: FnOnce(Idx) -> Result<SlotTuple<T>>,
-    {
+        record: Option<RecordId>,
+        data: T,
+    ) -> Result<SlotHandle<T>, StoreError<T>> {
         // blocks should never be left in a full state... If it is filled during an insert, then a new block should be created
 
         let block = inner
@@ -160,7 +158,7 @@ impl<T> Store<T> {
 
         let mut block_inner = block.inner.write();
 
-        let res = block.insert_one_with(&mut block_inner, f)?;
+        let res = block.insert_one_with(&mut block_inner, record, data)?;
 
         if block_inner.is_full() {
             if let Some(index) = block_inner.meta.take_next_block_index() {

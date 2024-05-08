@@ -1,14 +1,14 @@
 use anyhow::Result;
 use primitives::byte_encoding::{AccessBytes, ScalarFromBytes};
-use primitives::idx::Idx;
-use primitives::{ThinIdx, O16};
+use primitives::idx::{Gen, Idx};
+use primitives::ThinIdx;
 use serde::{Deserialize, Serialize};
 
 use super::{TableId, ThinRecordId};
 
 pub mod thin;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct RecordId(ThinRecordId, TableId);
 
 impl AccessBytes for RecordId {
@@ -36,6 +36,33 @@ impl ScalarFromBytes for RecordId {
     }
 }
 
+impl std::fmt::Debug for RecordId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !f.alternate() {
+            f.debug_struct("RecordId")
+                .field("id", &self.0.to_string())
+                .field("table", &self.1.to_string())
+                .finish()
+        } else {
+            f.debug_struct("RecordId")
+                .field("gen", &self.gen().into_raw())
+                .field("index", &self.into_thin().0.into_usize())
+                .field("table", &self.1.to_string())
+                .finish()
+        }
+    }
+}
+
+impl std::fmt::Display for RecordId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::with_capacity(64);
+        base62::encode_buf(self.0.gen().into_raw().into_u64(), &mut s);
+        base62::encode_buf(self.0.as_u64(), &mut s);
+        base62::encode_buf(self.1.into_raw().into_u64(), &mut s);
+        write!(f, "{}", s)
+    }
+}
+
 impl Into<Idx> for RecordId {
     fn into(self) -> Idx {
         self.0.into()
@@ -52,7 +79,7 @@ impl RecordId {
     pub const INVALID: Self = Self(ThinRecordId::INVALID, TableId::INVALID);
     pub const NIL: Option<Self> = None;
 
-    pub fn new(n: ThinIdx, table: TableId) -> Self {
+    pub fn new(n: impl Into<ThinIdx>, table: TableId) -> Self {
         Self(ThinRecordId::new(n), table)
     }
 
@@ -93,7 +120,7 @@ impl RecordId {
         self.0
     }
 
-    pub fn gen_id(&self) -> O16 {
-        self.0.gen_id()
+    pub fn gen(&self) -> Gen {
+        self.0.gen()
     }
 }

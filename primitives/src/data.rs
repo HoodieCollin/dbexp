@@ -6,7 +6,7 @@ use crate::{
     Number, Timestamp, O16, O32, O64,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(u32)]
 pub enum DataType {
     O16 = 1,
@@ -39,6 +39,27 @@ impl IntoBytes for DataType {
 impl ScalarFromBytes for DataType {
     fn from_bytes(bytes: &[u8]) -> Result<Self> {
         Self::try_from_array(bytes)
+    }
+}
+
+impl std::fmt::Debug for DataType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::O16 => write!(f, "DataType::O16"),
+            Self::O32 => write!(f, "DataType::O32"),
+            Self::O64 => write!(f, "DataType::O64"),
+            Self::Bool => write!(f, "DataType::Bool"),
+            Self::Number => write!(f, "DataType::Number"),
+            Self::Timestamp => write!(f, "DataType::Timestamp"),
+            Self::Text(size) => write!(f, "DataType::Text({})", size),
+            Self::Bytes(size) => write!(f, "DataType::Bytes({})", size),
+        }
+    }
+}
+
+impl std::fmt::Display for DataType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.into_base62())
     }
 }
 
@@ -125,11 +146,17 @@ impl DataType {
 
         Ok(count)
     }
+
+    pub fn into_base62(self) -> String {
+        let bytes = self.into_array();
+        let n = u64::from_ne_bytes(bytes);
+        base62::encode(n)
+    }
 }
 
 /// A wrapper around `DataType` that represents an expected type. The inner `DataType`
 /// should never be changed once set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct ExpectedType(DataType);
 
@@ -164,6 +191,18 @@ impl std::ops::Deref for ExpectedType {
 impl AsRef<DataType> for ExpectedType {
     fn as_ref(&self) -> &DataType {
         &self.0
+    }
+}
+
+impl std::fmt::Debug for ExpectedType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
+impl std::fmt::Display for ExpectedType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

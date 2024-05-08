@@ -64,6 +64,10 @@ impl O16 {
     pub fn into_usize(self) -> usize {
         self.0.get() as usize
     }
+
+    pub fn into_u64(self) -> u64 {
+        self.0.get() as u64
+    }
 }
 
 impl Default for O16 {
@@ -168,6 +172,10 @@ impl O32 {
     pub fn into_usize(self) -> usize {
         self.0.get() as usize
     }
+
+    pub fn into_u64(self) -> u64 {
+        self.0.get() as u64
+    }
 }
 
 impl Default for O32 {
@@ -271,6 +279,10 @@ impl O64 {
 
     pub fn into_usize(self) -> usize {
         self.0.get() as usize
+    }
+
+    pub fn into_u64(self) -> u64 {
+        self.0.get()
     }
 }
 

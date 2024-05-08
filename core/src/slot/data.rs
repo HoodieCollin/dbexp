@@ -1,7 +1,8 @@
 use std::{mem::MaybeUninit, ptr::NonNull};
 
 use anyhow::Result;
-use primitives::{Idx, ThinIdx, O16};
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use primitives::{idx::Gen, ThinIdx};
 
 use crate::object_ids::ThinRecordId;
 
@@ -9,22 +10,22 @@ use super::GAP_HEAD;
 
 #[repr(C)]
 pub struct SlotData<T> {
-    gen_id: Option<O16>,
+    is_gap: bool,
     record: Option<ThinRecordId>,
     data: MaybeUninit<T>,
 }
 
 impl<T: Clone> Clone for SlotData<T> {
     fn clone(&self) -> Self {
-        if self.is_gap() {
+        if self.is_gap {
             Self {
-                gen_id: None,
+                is_gap: true,
                 record: None,
                 data: MaybeUninit::uninit(),
             }
         } else {
             Self {
-                gen_id: self.gen_id,
+                is_gap: false,
                 record: self.record,
                 data: MaybeUninit::new(unsafe { self.data_unchecked().clone() }),
             }
@@ -37,7 +38,7 @@ impl<T: Copy> Copy for SlotData<T> {}
 impl<T> Default for SlotData<T> {
     fn default() -> Self {
         Self {
-            gen_id: None,
+            is_gap: true,
             record: None,
             data: MaybeUninit::uninit(),
         }
@@ -46,7 +47,7 @@ impl<T> Default for SlotData<T> {
 
 impl<T: std::fmt::Debug> std::fmt::Debug for SlotData<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.is_gap() {
+        if self.is_gap {
             let mut d = f.debug_struct("Gap");
             let prev = unsafe { self.previous_gap_unchecked() };
 
@@ -66,19 +67,19 @@ impl<T: std::fmt::Debug> std::fmt::Debug for SlotData<T> {
 impl<T> SlotData<T> {
     pub fn new(record: Option<impl Into<ThinRecordId>>, data: T) -> Self {
         Self {
-            gen_id: Some(O16::new()),
+            is_gap: false,
             record: record.map(|x| x.into()),
             data: MaybeUninit::new(data),
         }
     }
 
     pub fn is_gap(&self) -> bool {
-        self.gen_id.is_none()
+        self.is_gap
     }
 
     /// Returns the previous gap idx in the chain.
     pub fn previous_gap(&self) -> Option<usize> {
-        if self.is_gap() {
+        if self.is_gap {
             Some(unsafe { self.previous_gap_unchecked() })
         } else {
             None
@@ -86,12 +87,12 @@ impl<T> SlotData<T> {
     }
 
     pub unsafe fn previous_gap_unchecked(&self) -> usize {
-        debug_assert!(self.is_gap());
+        debug_assert!(self.is_gap);
         std::ptr::read_unaligned(self.data.as_ptr() as *const _)
     }
 
     pub fn thin_record_id(&self) -> Option<ThinRecordId> {
-        if self.is_gap() {
+        if self.is_gap {
             None
         } else {
             self.record
@@ -99,49 +100,36 @@ impl<T> SlotData<T> {
     }
 
     pub fn data(&self) -> Option<&T> {
-        if self.is_gap() {
+        if self.is_gap {
             None
         } else {
             Some(unsafe { self.data_unchecked() })
         }
     }
 
-    pub fn gen_id(&self) -> Option<O16> {
-        if self.is_gap() {
-            None
-        } else {
-            Some(unsafe { self.gen_id_unchecked() })
-        }
-    }
-
-    pub unsafe fn gen_id_unchecked(&self) -> O16 {
-        debug_assert!(!self.is_gap());
-        self.gen_id.unwrap_unchecked()
-    }
-
     pub unsafe fn data_unchecked(&self) -> &T {
-        debug_assert!(!self.is_gap());
+        debug_assert!(!self.is_gap);
         self.data.assume_init_ref()
     }
 
     pub unsafe fn data_unchecked_mut(&mut self) -> &mut T {
-        debug_assert!(!self.is_gap());
+        debug_assert!(!self.is_gap);
         self.data.assume_init_mut()
     }
 
     pub unsafe fn read_data_unchecked(&self) -> T {
-        debug_assert!(!self.is_gap());
+        debug_assert!(!self.is_gap);
         std::ptr::read(self.data.as_ptr())
     }
 
     /// Blocks the previous gap idx in the chain.
     pub fn create_gap(&mut self, previous_gap: Option<impl Into<ThinIdx>>) {
-        if self.is_gap() {
+        if self.is_gap {
             return;
         }
 
+        self.is_gap = true;
         self.record = ThinRecordId::NIL;
-        self.gen_id = O16::NIL;
 
         unsafe {
             std::ptr::write_unaligned(
@@ -153,15 +141,15 @@ impl<T> SlotData<T> {
         }
     }
 
-    pub fn fill_gap(&mut self, record: Option<impl Into<ThinRecordId>>, idx: Idx, data: T) {
+    pub fn fill_gap(&mut self, record: Option<impl Into<ThinRecordId>>, data: T) {
         #[cfg(debug_assertions)]
         {
-            if !self.is_gap() {
+            if !self.is_gap {
                 panic!("slot is not a gap");
             }
         }
 
-        self.gen_id = Some(idx.into_gen_id());
+        self.is_gap = false;
         self.record = record.map(|x| x.into());
         self.data = MaybeUninit::new(data);
     }
@@ -169,12 +157,11 @@ impl<T> SlotData<T> {
     pub fn replace(&mut self, data: T) {
         #[cfg(debug_assertions)]
         {
-            if self.is_gap() {
+            if self.is_gap {
                 panic!("slot is a gap");
             }
         }
 
-        self.gen_id = Some(O16::new());
         self.data = MaybeUninit::new(data);
     }
 
@@ -185,7 +172,7 @@ impl<T> SlotData<T> {
     {
         #[cfg(debug_assertions)]
         {
-            if self.is_gap() {
+            if self.is_gap {
                 panic!("slot is a gap");
             }
         }
@@ -193,31 +180,52 @@ impl<T> SlotData<T> {
         f(unsafe { self.data_unchecked_mut() })
     }
 
-    pub fn from_parts(gen_id: O16, record: Option<impl Into<ThinRecordId>>, data: T) -> Self {
-        Self {
-            gen_id: Some(gen_id),
-            record: record.map(|x| x.into()),
-            data: MaybeUninit::new(data),
+    /// Returns the record and data if the slot is not a gap.
+    pub fn copy_parts(&self) -> Option<(Option<ThinRecordId>, T)>
+    where
+        T: Copy,
+    {
+        if self.is_gap {
+            None
+        } else {
+            unsafe { Some((self.thin_record_id(), self.read_data_unchecked())) }
         }
     }
 
-    pub fn into_parts(self) -> Option<(O16, Option<ThinRecordId>, T)> {
-        if self.is_gap() {
+    /// Same as `copy_parts` but doesn't require `T: Copy`.
+    ///
+    /// > ## Safety
+    /// > The caller must ensure that they have exclusive ownership of the slot and
+    /// > immediately converts it to a gap after calling this method.
+    ///
+    /// > ### *Note:*
+    /// > *This method is safe to call if the slot is a gap.*
+    pub unsafe fn read_parts(&self) -> Option<(Option<ThinRecordId>, T)> {
+        if self.is_gap {
             None
         } else {
-            unsafe {
-                Some((
-                    self.gen_id.unwrap_unchecked(),
-                    self.thin_record_id(),
-                    self.read_data_unchecked(),
-                ))
+            Some((self.thin_record_id(), self.read_data_unchecked()))
+        }
+    }
+
+    pub fn check_gen(&self, expected_gen: Gen) -> Result<()> {
+        if let Some(record) = self.thin_record_id() {
+            if record.gen() != expected_gen {
+                anyhow::bail!("record gen id mismatch");
             }
         }
+
+        Ok(())
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct SlotDataRef<'a, T>(&'a NonNull<SlotData<T>>);
+pub struct SlotDataRef<'a, T>(RwLockReadGuard<'a, NonNull<SlotData<T>>>);
+
+impl<T: std::fmt::Debug> std::fmt::Debug for SlotDataRef<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        unsafe { std::fmt::Debug::fmt(self.0.as_ref(), f) }
+    }
+}
 
 impl<'a, T> std::ops::Deref for SlotDataRef<'a, T> {
     type Target = SlotData<T>;
@@ -234,19 +242,63 @@ impl<'a, T> AsRef<SlotData<T>> for SlotDataRef<'a, T> {
 }
 
 impl<'a, T> SlotDataRef<'a, T> {
-    pub fn new(ptr: &'a NonNull<SlotData<T>>) -> Self {
-        Self(ptr)
+    pub fn new(rw: &'a RwLock<NonNull<SlotData<T>>>) -> Self {
+        Self(rw.read())
     }
 
-    pub fn check_gen(self, expected_gen: O16) -> Result<()> {
-        if let Some(gen) = unsafe { self.0.as_ref().gen_id() } {
-            if gen != expected_gen {
-                anyhow::bail!("slot has been invalidated");
-            }
-        } else {
-            anyhow::bail!("slot is not initialized");
-        }
+    pub fn from_guard(guard: RwLockReadGuard<'a, NonNull<SlotData<T>>>) -> Self {
+        Self(guard)
+    }
 
-        Ok(())
+    pub fn unwrap_guard(self) -> RwLockReadGuard<'a, NonNull<SlotData<T>>> {
+        self.0
+    }
+}
+
+pub struct SlotDataMut<'a, T>(RwLockWriteGuard<'a, NonNull<SlotData<T>>>);
+
+impl<T: std::fmt::Debug> std::fmt::Debug for SlotDataMut<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        unsafe { std::fmt::Debug::fmt(self.0.as_ref(), f) }
+    }
+}
+
+impl<'a, T> std::ops::Deref for SlotDataMut<'a, T> {
+    type Target = SlotData<T>;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<'a, T> std::ops::DerefMut for SlotDataMut<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut() }
+    }
+}
+
+impl<'a, T> AsRef<SlotData<T>> for SlotDataMut<'a, T> {
+    fn as_ref(&self) -> &SlotData<T> {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<'a, T> AsMut<SlotData<T>> for SlotDataMut<'a, T> {
+    fn as_mut(&mut self) -> &mut SlotData<T> {
+        unsafe { self.0.as_mut() }
+    }
+}
+
+impl<'a, T> SlotDataMut<'a, T> {
+    pub fn new(rw: &'a RwLock<NonNull<SlotData<T>>>) -> Self {
+        Self(rw.write())
+    }
+
+    pub fn from_guard(guard: RwLockWriteGuard<'a, NonNull<SlotData<T>>>) -> Self {
+        Self(guard)
+    }
+
+    pub fn unwrap_guard(self) -> RwLockWriteGuard<'a, NonNull<SlotData<T>>> {
+        self.0
     }
 }

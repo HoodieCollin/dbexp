@@ -3,7 +3,7 @@ use std::{iter, num::NonZeroUsize, ops::RangeBounds};
 use anyhow::Result;
 
 use crate::{
-    column_indices::{ColumnIndices, MAX_COLUMNS},
+    indices::{ColumnIndices, MAX_COLUMNS},
     object_ids::{RecordId, TableId},
     slot::SlotHandle,
     store::{InsertError, InsertState, Store, StoreConfig, StoreError},
@@ -55,7 +55,7 @@ impl RecordStore {
         let record = RecordId::new(store.next_available_index(), table);
         let handle = self.store.insert_one(None, ColumnIndices::new(columns))?;
 
-        Ok((record, handle))
+        Ok((record, handle.ensure_idx_has_gen()))
     }
 
     #[must_use]
@@ -76,14 +76,14 @@ impl RecordStore {
         {
             InsertState::Done(handles) => Ok(handles
                 .into_iter()
-                .map(|h| (RecordId::new(h.idx.into_thin(), table), h))
+                .map(|h| (RecordId::new(h.idx, table), h.ensure_idx_has_gen()))
                 .collect::<Vec<_>>()),
             InsertState::Partial {
                 errors, handles, ..
             } => {
                 let mut tuples = handles
                     .into_iter()
-                    .map(|(_, h)| (RecordId::new(h.idx.into_thin(), table), h))
+                    .map(|(_, h)| (RecordId::new(h.idx, table), h.ensure_idx_has_gen()))
                     .collect::<Vec<_>>();
 
                 for (_, error) in errors {
@@ -94,8 +94,8 @@ impl RecordStore {
 
                             loop {
                                 match self.insert_one() {
-                                    Ok(tuple) => {
-                                        tuples.push(tuple);
+                                    Ok((record, handle)) => {
+                                        tuples.push((record, handle.ensure_idx_has_gen()));
                                         break;
                                     }
                                     Err(err) => {
@@ -154,7 +154,14 @@ impl RecordStore {
                 values.into_iter().map(|(idx, _, values)| (idx, values)),
                 handles.into_iter(),
             )
-            .map(|((index, values), h)| (index, RecordId::new(h.idx.into_thin(), table), h, values))
+            .map(|((index, values), h)| {
+                (
+                    index,
+                    RecordId::new(h.idx, table),
+                    h.ensure_idx_has_gen(),
+                    values,
+                )
+            })
             .collect::<Vec<_>>()),
             InsertState::Partial { errors, handles } => {
                 fn new_invalid_entry<T>() -> (usize, ColumnIndices, Vec<T>) {
@@ -168,7 +175,12 @@ impl RecordStore {
                             let entry = values.get_mut(i).unwrap();
                             let (index, _, values) = std::mem::replace(entry, new_invalid_entry());
 
-                            (index, RecordId::new(h.idx.into_thin(), table), h, values)
+                            (
+                                index,
+                                RecordId::new(h.idx, table),
+                                h.ensure_idx_has_gen(),
+                                values,
+                            )
                         })
                         .collect::<Vec<_>>()
                 };
@@ -186,7 +198,7 @@ impl RecordStore {
                                         let (idx, _, values) =
                                             std::mem::replace(entry, new_invalid_entry());
 
-                                        tuples.push((idx, record, h, values));
+                                        tuples.push((idx, record, h.ensure_idx_has_gen(), values));
                                         break;
                                     }
                                     Err(err) => {

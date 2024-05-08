@@ -3,7 +3,7 @@ use serde::Serialize;
 
 const MAX_LEN: usize = 4096;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct Bytes(pub(crate) Vec<u8>, pub(crate) usize);
 
 impl Bytes {
@@ -105,6 +105,22 @@ impl Bytes {
 
     pub fn as_ptr(&self) -> *const u8 {
         self.0.as_ptr()
+    }
+}
+
+impl std::fmt::Debug for Bytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0[..self.1].iter()).finish()
+    }
+}
+
+impl std::fmt::Display for Bytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for byte in self.0[..self.1].iter() {
+            write!(f, "{:02x}", byte)?;
+        }
+
+        Ok(())
     }
 }
 

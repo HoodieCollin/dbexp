@@ -1,7 +1,7 @@
 use std::{fs::File, sync::Arc};
 
 use anyhow::Result;
-use primitives::{shared_object::SharedObject, Idx, ThinIdx};
+use primitives::{shared_object::SharedObject, ThinIdx};
 
 use crate::{
     block::inner::BlockInner,
@@ -133,19 +133,17 @@ impl<T> Block<T> {
                 }
             }
 
-            self.insert_one_with(inner, |_| Ok((record, data)))
+            self.insert_one_with(inner, record, data)
         })
     }
 
     #[must_use]
-    pub(super) fn insert_one_with<F>(
+    pub(super) fn insert_one_with(
         &self,
         inner: &mut BlockInner<T>,
-        f: F,
-    ) -> Result<SlotHandle<T>, InsertError<T>>
-    where
-        F: FnOnce(Idx) -> Result<SlotTuple<T>>,
-    {
+        record: Option<RecordId>,
+        data: T,
+    ) -> Result<SlotHandle<T>, InsertError<T>> {
         let is_gap;
         let index;
 
@@ -160,15 +158,12 @@ impl<T> Block<T> {
         }
 
         let mut new_tail = None;
-        let idx = index.into_idx();
-        let (record, data) = f(idx)?;
 
-        let slot = &inner.slots_by_index[index];
-        let mut slot = slot.write();
+        let mut slot = inner.slots_by_index[index].write();
         let slot_data = unsafe { slot.as_mut() };
 
         if is_gap {
-            new_tail = Some(unsafe { ThinIdx::new_unchecked(slot_data.previous_gap_unchecked()) });
+            new_tail = Some(ThinIdx::new(unsafe { slot_data.previous_gap_unchecked() }));
         } else {
             slot_data.create_gap(ThinIdx::NIL);
         }
@@ -184,7 +179,7 @@ impl<T> Block<T> {
             }
         }
 
-        slot_data.fill_gap(record, idx, data);
+        slot_data.fill_gap(record, data);
 
         if let Some(new_tail) = new_tail {
             inner.meta.gap_tail = Some(new_tail);
@@ -192,7 +187,7 @@ impl<T> Block<T> {
 
         Ok(SlotHandle {
             block: self.clone(),
-            idx,
+            idx: index.into_maybe_thin(),
         })
     }
 
@@ -227,7 +222,7 @@ impl<T> Block<T> {
 
         loop {
             match iter.next() {
-                Some(tuple) => match self.insert_one_with(&mut inner, |_| Ok(tuple)) {
+                Some((record, data)) => match self.insert_one_with(&mut inner, record, data) {
                     Ok(handle) => {
                         handles.push((index, handle));
                     }
@@ -370,7 +365,9 @@ mod tests {
             .insert_one(None, Item { a: 5, b: 6 })
             .map_err(unwrap_insert_err)?;
 
-        let (r2, i2) = h2.remove_self()?;
+        let (r2, i2) = h2
+            .remove_self()
+            .ok_or_else(|| anyhow::anyhow!("first h2 remove failed"))?;
 
         let h4 = block
             .insert_one(None, Item { a: 7, b: 8 })
@@ -378,8 +375,13 @@ mod tests {
 
         let h2 = block.insert_one(r2, i2).map_err(unwrap_insert_err)?;
 
-        let _ = h4.remove_self()?;
-        let _ = h2.remove_self()?;
+        let _ = h4
+            .remove_self()
+            .ok_or_else(|| anyhow::anyhow!("h4 remove failed"))?;
+
+        let _ = h2
+            .remove_self()
+            .ok_or_else(|| anyhow::anyhow!("second h2 remove failed"))?;
 
         println!("{:#?}", block);
 

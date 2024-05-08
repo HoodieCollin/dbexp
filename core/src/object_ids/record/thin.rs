@@ -1,14 +1,14 @@
 use anyhow::Result;
 use primitives::byte_encoding::{AccessBytes, ScalarFromBytes};
-use primitives::idx::Idx;
-use primitives::{ThinIdx, O16};
+use primitives::idx::{Gen, Idx};
+use primitives::ThinIdx;
 use serde::{Deserialize, Serialize};
 
 use super::RecordId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
-pub struct ThinRecordId(pub(self) Idx);
+pub struct ThinRecordId(pub(super) Idx);
 
 impl AccessBytes for ThinRecordId {
     fn access_bytes<F>(&self, mut f: F) -> Result<()>
@@ -35,6 +35,28 @@ impl ScalarFromBytes for ThinRecordId {
     }
 }
 
+impl std::fmt::Debug for ThinRecordId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !f.alternate() {
+            write!(f, "ThinRecordId({})", self.to_string())
+        } else {
+            f.debug_struct("ThinRecordId")
+                .field("gen", &self.gen().into_raw())
+                .field("index", &self.0.into_usize())
+                .finish()
+        }
+    }
+}
+
+impl std::fmt::Display for ThinRecordId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::with_capacity(32);
+        base62::encode_buf(self.0.into_gen().into_raw().into_u64(), &mut s);
+        base62::encode_buf(self.0.into_u64(), &mut s);
+        write!(f, "{}", s)
+    }
+}
+
 impl Into<Idx> for ThinRecordId {
     fn into(self) -> Idx {
         self.0
@@ -57,8 +79,8 @@ impl ThinRecordId {
     pub const INVALID: Self = Self(Idx::INVALID);
     pub const NIL: Option<Self> = None;
 
-    pub fn new(n: ThinIdx) -> Self {
-        Self(Idx::from_thin(n))
+    pub fn new(n: impl Into<ThinIdx>) -> Self {
+        Self(Idx::from_thin(n.into()))
     }
 
     pub fn from_record(record: RecordId) -> Self {
@@ -77,7 +99,15 @@ impl ThinRecordId {
         self.0.into_array()
     }
 
-    pub fn gen_id(&self) -> O16 {
-        self.0.into_gen_id()
+    pub fn gen(&self) -> Gen {
+        self.0.into_gen()
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        self.0.into_u64()
+    }
+
+    pub fn as_usize(&self) -> usize {
+        self.0.into_usize()
     }
 }
