@@ -1,21 +1,21 @@
 use anyhow::Result;
 use serde::Serialize;
 
-const MAX_LEN: usize = 4096;
+use crate::Vector;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct Bytes(pub(crate) Vec<u8>, pub(crate) usize);
+pub struct Bytes(pub(crate) Vector<u8>);
 
 impl Bytes {
-    pub const MAX_LEN: usize = MAX_LEN;
+    pub const MAX_LEN: usize = Vector::<u8>::MAX_LEN;
 
     #[must_use]
     pub fn new(cap: usize) -> Result<Self> {
-        if cap > MAX_LEN {
+        if cap > Self::MAX_LEN {
             anyhow::bail!("Bytes buffer capacity is too large");
         }
 
-        Ok(Self(Vec::with_capacity(cap), cap))
+        Ok(Self(Vector::new(cap)?))
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -23,7 +23,7 @@ impl Bytes {
     }
 
     pub fn as_slice_mut(&mut self) -> &mut [u8] {
-        self.0.as_mut_slice()
+        self.0.as_slice_mut()
     }
 
     #[must_use]
@@ -33,7 +33,7 @@ impl Bytes {
         }
 
         let mut buf = Self::new(cap)?;
-        buf.0.extend_from_slice(value.as_bytes());
+        buf.0.try_extend_from_slice(value.as_bytes())?;
         Ok(buf)
     }
 
@@ -44,7 +44,7 @@ impl Bytes {
         }
 
         let mut buf = Self::new(cap)?;
-        buf.0.extend_from_slice(bytes);
+        buf.0.try_extend_from_slice(bytes)?;
         Ok(buf)
     }
 
@@ -55,7 +55,7 @@ impl Bytes {
         }
 
         let mut buf = Self::new(cap)?;
-        buf.0.extend_from_slice(&value.to_ne_bytes());
+        buf.0.try_extend_from_slice(&value.to_ne_bytes())?;
         Ok(buf)
     }
 
@@ -66,13 +66,17 @@ impl Bytes {
         }
 
         let mut buf = Self::new(cap)?;
-        buf.0.extend_from_slice(&value.to_ne_bytes());
+        buf.0.try_extend_from_slice(&value.to_ne_bytes())?;
         Ok(buf)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 
     #[inline(always)]
     pub fn capacity(&self) -> usize {
-        self.1
+        self.0.capacity()
     }
 
     #[inline(always)]
@@ -100,7 +104,7 @@ impl Bytes {
             anyhow::bail!("Bytes buffer is full");
         }
 
-        Ok(self.0.extend_from_slice(bytes.as_ref()))
+        Ok(self.0.try_extend_from_slice(bytes.as_ref())?)
     }
 
     pub fn as_ptr(&self) -> *const u8 {
@@ -110,13 +114,13 @@ impl Bytes {
 
 impl std::fmt::Debug for Bytes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_list().entries(self.0[..self.1].iter()).finish()
+        std::fmt::Debug::fmt(&self.0, f)
     }
 }
 
 impl std::fmt::Display for Bytes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for byte in self.0[..self.1].iter() {
+        for byte in self.0.iter() {
             write!(f, "{:02x}", byte)?;
         }
 
@@ -146,6 +150,6 @@ impl AsRef<[u8]> for Bytes {
 
 impl AsMut<[u8]> for Bytes {
     fn as_mut(&mut self) -> &mut [u8] {
-        self.0.as_mut_slice()
+        self.0.as_slice_mut()
     }
 }

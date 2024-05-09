@@ -17,7 +17,7 @@ use crate::{
 
 pub struct BlockInner<T: 'static> {
     pub(crate) meta: BlockMeta,
-    data: MmapMut,
+    data: Arc<MmapMut>,
     pub(crate) slots_by_index: Vec<RwLock<NonNull<SlotData<T>>>>,
     pub(crate) index_by_record: IndexMap<ThinRecordId, ThinIdx>,
 }
@@ -72,12 +72,12 @@ impl<T> BlockInner<T> {
         let block_capacity = meta.block_capacity();
         let content_len = meta.block_capacity() * Self::SLOT_BYTE_COUNT;
 
-        let data = unsafe {
+        let data = Arc::new(unsafe {
             MmapOptions::new()
                 .offset(BlockMeta::BYTE_COUNT as u64)
                 .len(content_len)
                 .map_mut(&*file)?
-        };
+        });
 
         let slots_by_index = iter::repeat_with(|| ())
             .enumerate()
@@ -113,7 +113,7 @@ impl<T> BlockInner<T> {
         let meta = BlockMeta::new(index, table, config);
 
         let block_capacity = meta.block_capacity();
-        let data = MmapMut::map_anon(block_capacity * Self::SLOT_BYTE_COUNT)?;
+        let data = Arc::new(MmapMut::map_anon(block_capacity * Self::SLOT_BYTE_COUNT)?);
 
         let slots_by_index = iter::repeat_with(|| ())
             .enumerate()

@@ -3,6 +3,7 @@
 #![feature(allocator_api)]
 #![feature(os_str_display)]
 #![feature(step_trait)]
+#![feature(alloc_layout_extra)]
 #![feature(generic_const_exprs)]
 
 use std::{
@@ -27,6 +28,7 @@ pub mod oid;
 pub mod shared_object;
 pub mod text;
 pub mod timestamp;
+pub mod vector;
 
 pub use bytes::Bytes;
 pub use data::{DataType, ExpectedType};
@@ -38,6 +40,7 @@ pub use oid::{O16, O32, O64};
 pub use shared_object::SharedObject;
 pub use text::Text;
 pub use timestamp::Timestamp;
+pub use vector::Vector;
 
 /// ## !!! WARNING !!!
 ///

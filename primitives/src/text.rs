@@ -107,7 +107,7 @@ impl Text {
 
     pub fn as_str_mut(&mut self) -> &mut str {
         // SAFETY: Text is guaranteed to be valid UTF-8
-        unsafe { std::str::from_utf8_unchecked_mut(self.0 .0.as_mut_slice()) }
+        unsafe { std::str::from_utf8_unchecked_mut(self.0 .0.as_slice_mut()) }
     }
 
     pub fn as_bytes(&self) -> &[u8] {
