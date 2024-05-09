@@ -275,21 +275,23 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Block<T> {
         let mut slots = Vec::with_capacity(inner.meta.len());
         let mut needed = inner.meta.len();
 
-        inner
-            .slots_by_index
-            .iter()
-            .take_while(|slot| {
-                let slot = slot.read();
-                let slot = unsafe { slot.as_ref() };
+        if needed != 0 {
+            inner
+                .slots_by_index
+                .iter()
+                .take_while(|slot| {
+                    let slot = slot.read();
+                    let slot = unsafe { slot.as_ref() };
 
-                if !slot.is_gap() {
-                    slots.push(unsafe { slot.data_unchecked() });
-                    needed -= 1;
-                }
+                    if !slot.is_gap() {
+                        slots.push(unsafe { slot.data_unchecked() });
+                        needed -= 1;
+                    }
 
-                needed > 0
-            })
-            .count();
+                    needed > 0
+                })
+                .count();
+        }
 
         d.field("slots", &slots);
 
