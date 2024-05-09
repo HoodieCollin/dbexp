@@ -1,7 +1,6 @@
 // #![allow(incomplete_features)]
 #![feature(step_trait)]
 #![feature(os_str_display)]
-#![feature(generic_const_exprs)]
 
 use std::{any::Any, mem::MaybeUninit, num::NonZeroUsize, ops::RangeBounds, path::Path};
 
@@ -554,9 +553,10 @@ impl Table {
         Ok(record_handle)
     }
 
-    pub fn insert<I>(&self, values: I) -> Result<InsertState, anyhow::Error>
+    pub fn insert<I, U>(&self, values: I) -> Result<InsertState, anyhow::Error>
     where
-        I: IntoIterator<Item = Vec<Option<DataValue>>>,
+        I: IntoIterator<Item = U>,
+        U: IntoIterator<Item = Option<DataValue>>,
     {
         let records = self
             .records

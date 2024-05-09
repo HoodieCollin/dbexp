@@ -302,20 +302,23 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Block<T> {
 #[allow(dead_code)]
 #[cfg(test)]
 mod tests {
-    use primitives::byte_encoding::{FromBytes, IntoBytes};
+    use primitives::{
+        byte_encoding::{FromBytes, IntoBytes},
+        into_bytes,
+    };
 
     use super::*;
 
     #[test]
     fn test_block_config() -> Result<()> {
         let config = BlockConfig::default();
-        let bytes = config.into_bytes()?;
+        let bytes = into_bytes!(config, BlockConfig)?;
         let mut config2 = BlockConfig::from_bytes(&bytes)?;
 
         assert_eq!(config, config2);
 
         config2.set_block_capacity(42)?;
-        let bytes = config2.into_bytes()?;
+        let bytes = into_bytes!(config2, BlockConfig)?;
         let config3 = BlockConfig::from_bytes(&bytes)?;
 
         assert_eq!(config2, config3);
@@ -328,12 +331,12 @@ mod tests {
         let meta = BlockMeta::new(0usize, TableId::new(), None);
         let mut meta2 = BlockMeta::new(123usize, TableId::new(), None);
         let mut meta3 = BlockMeta::new(456usize, TableId::new(), None);
-        meta2.init_from_bytes(&meta.into_bytes()?)?;
+        meta2.init_from_bytes(&into_bytes!(meta, BlockMeta)?)?;
 
         assert_eq!(meta, meta2);
 
         meta2.length = 42;
-        meta3.init_from_bytes(&meta2.into_bytes()?)?;
+        meta3.init_from_bytes(&into_bytes!(meta2, BlockMeta)?)?;
 
         assert_eq!(meta2, meta3);
 

@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 use anyhow::Result;
 use primitives::{
     byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
-    impl_access_bytes_for_into_bytes_type, ThinIdx,
+    impl_access_bytes_for_into_bytes_type, into_bytes, ThinIdx,
 };
 
 use crate::{block::Block, object_ids::TableId, store::config::StoreConfig};
@@ -42,7 +42,7 @@ impl IntoBytes for StoreMeta {
         x.encode(self.item_count)?;
         x.encode(self.gap_count)?;
         x.encode(self.cur_block)?;
-        x.encode_bytes(&self.config.into_bytes()?)?;
+        x.encode_bytes(&into_bytes!(self.config, StoreConfig)?)?;
         Ok(())
     }
 }

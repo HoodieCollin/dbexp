@@ -245,7 +245,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Store<T> {
 mod test {
     use primitives::{
         byte_encoding::{FromBytes, IntoBytes},
-        O64,
+        into_bytes, O64,
     };
     use std::{iter, num::NonZeroUsize};
 
@@ -254,13 +254,13 @@ mod test {
     #[test]
     fn test_store_config() -> Result<()> {
         let config = StoreConfig::default();
-        let bytes = config.into_bytes()?;
+        let bytes = into_bytes!(config, StoreConfig)?;
         let mut config2 = StoreConfig::from_bytes(&bytes)?;
 
         assert_eq!(config, config2);
 
         config2.block_capacity = NonZeroUsize::new(42).unwrap();
-        let bytes = config2.into_bytes()?;
+        let bytes = into_bytes!(config2, StoreConfig)?;
         let config3 = StoreConfig::from_bytes(&bytes)?;
 
         assert_eq!(config2, config3);
@@ -271,13 +271,13 @@ mod test {
     #[test]
     fn test_store_meta() -> Result<()> {
         let meta = StoreMeta::default();
-        let bytes = meta.into_bytes()?;
+        let bytes = into_bytes!(meta, StoreMeta)?;
         let mut meta2 = StoreMeta::from_bytes(&bytes)?;
 
         assert_eq!(meta, meta2);
 
         meta2.item_count = 42;
-        let bytes = meta2.into_bytes()?;
+        let bytes = into_bytes!(meta2, StoreMeta)?;
         let meta3 = StoreMeta::from_bytes(&bytes)?;
 
         assert_eq!(meta2, meta3);

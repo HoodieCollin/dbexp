@@ -119,12 +119,13 @@ impl Records {
     /// Consumes the iterator inserting a record for each value. Returns a vector of record IDs and
     /// slot handles for each value along with the value itself in the order they were inserted.
     #[must_use]
-    pub fn insert_map<I, T>(
+    pub fn insert_map<I, U, T>(
         &self,
         iter: I,
     ) -> Result<Vec<(usize, RecordId, RecordHandle, Vec<T>)>, RecordsError>
     where
-        I: IntoIterator<Item = Vec<T>>,
+        I: IntoIterator<Item = U>,
+        U: IntoIterator<Item = T>,
     {
         let table = self.table;
         let columns = self.columns;
@@ -135,7 +136,7 @@ impl Records {
             .map(|(index, values)| {
                 let columns = ColumnIndices::new(columns);
 
-                (index, columns, values)
+                (index, columns, values.into_iter().collect::<Vec<_>>())
             })
             .collect::<Vec<_>>();
 

@@ -236,6 +236,8 @@ impl Idx {
 
 #[cfg(test)]
 mod tests {
+    use crate::into_bytes;
+
     use super::*;
 
     #[test]
@@ -264,7 +266,7 @@ mod tests {
     fn test_into_from_bytes() -> Result<()> {
         let idx = Idx::new(2);
 
-        let bytes = idx.into_bytes()?;
+        let bytes = into_bytes!(idx, Idx)?;
         let idx2 = Idx::from_bytes(&bytes)?;
 
         assert_eq!(idx, idx2);

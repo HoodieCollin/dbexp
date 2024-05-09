@@ -1,7 +1,7 @@
 use anyhow::Result;
 use primitives::{
     byte_encoding::{ByteDecoder, ByteEncoder, FromBytes, IntoBytes},
-    impl_access_bytes_for_into_bytes_type, ThinIdx,
+    impl_access_bytes_for_into_bytes_type, into_bytes, ThinIdx,
 };
 
 use crate::{block::config::BlockConfig, object_ids::TableId};
@@ -51,7 +51,7 @@ impl IntoBytes for BlockMeta {
         x.encode(self.gap_count)?;
         x.encode(self.next_block)?;
         x.encode(self.table)?;
-        x.encode_bytes(&self.config.into_bytes()?)?;
+        x.encode_bytes(&into_bytes!(&self.config, BlockConfig)?)?;
         Ok(())
     }
 }

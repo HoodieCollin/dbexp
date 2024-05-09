@@ -4,7 +4,6 @@
 #![feature(os_str_display)]
 #![feature(step_trait)]
 #![feature(alloc_layout_extra)]
-#![feature(generic_const_exprs)]
 
 use std::{
     alloc::{AllocError, Allocator, Layout},

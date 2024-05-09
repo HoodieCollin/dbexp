@@ -219,8 +219,12 @@ pub trait IntoBytes: Sized {
 
     fn encode_bytes(&self, x: &mut ByteEncoder<'_>) -> Result<()>;
 
-    fn into_bytes(&self) -> Result<[u8; Self::BYTE_COUNT]> {
-        let mut bytes = [0u8; Self::BYTE_COUNT];
+    fn into_bytes<const N: usize>(&self) -> Result<[u8; N]> {
+        if N != Self::BYTE_COUNT {
+            anyhow::bail!("invalid byte count")
+        }
+
+        let mut bytes = [0u8; N];
         let mut encoder = ByteEncoder {
             cursor: Cursor::new(&mut bytes),
         };
@@ -408,7 +412,7 @@ macro_rules! impl_access_bytes_for_into_bytes_type {
             where
                 F: FnMut(&[u8]) -> Result<()>,
             {
-                let bytes = self.into_bytes()?;
+                let bytes = self.into_bytes::<{ <$ty>::BYTE_COUNT }>()?;
                 f(&bytes)
             }
 
@@ -417,9 +421,23 @@ macro_rules! impl_access_bytes_for_into_bytes_type {
                 F: FnMut(&mut [u8]) -> Result<R>,
                 R: 'static,
             {
-                let mut bytes = self.into_bytes()?;
+                let mut bytes = self.into_bytes::<{ <$ty>::BYTE_COUNT }>()?;
                 Ok(Some(f(&mut bytes)?))
             }
         }
     };
+}
+
+#[macro_export]
+macro_rules! into_bytes {
+    ($v:expr, $ty:ty) => {{
+        let v = $v;
+
+        #[cfg(debug_assertions)]
+        {
+            assert_eq!(std::any::type_name_of_val(&v), std::any::type_name::<$ty>());
+        }
+
+        <$ty as $crate::byte_encoding::IntoBytes>::into_bytes::<{ <$ty>::BYTE_COUNT }>(&v)
+    }};
 }

@@ -11,7 +11,7 @@ use anyhow::Result;
 use indexmap::IndexMap;
 use primitives::{
     byte_encoding::{FromBytes, IntoBytes},
-    ThinIdx,
+    into_bytes, ThinIdx,
 };
 
 use crate::{
@@ -74,7 +74,7 @@ impl<T> StoreInner<T> {
 
             let file = File::create_new(path)?;
             file.set_len(meta.capacity_as_bytes::<T>() as u64)?;
-            file.write_all_at(&meta.into_bytes()?, 0)?;
+            file.write_all_at(&into_bytes!(meta, StoreMeta)?, 0)?;
 
             (meta, file)
         } else {
