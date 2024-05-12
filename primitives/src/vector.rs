@@ -4,6 +4,8 @@ use anyhow::Result;
 use memmap2::MmapMut;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::number::U24;
+
 const MAX_LEN: usize = 4096;
 
 pub struct RawVector<T> {
@@ -142,7 +144,7 @@ impl<T: std::hash::Hash> std::hash::Hash for Vector<T> {
 }
 
 impl<T> Vector<T> {
-    pub const MAX_LEN: usize = MAX_LEN;
+    pub const MAX_LEN: usize = U24::MAX;
 
     pub fn layout_and_item_offset_for(cap: usize) -> Result<(Layout, usize)> {
         if cap > MAX_LEN {

@@ -8,6 +8,149 @@ const FLOAT: u8 = 4;
 const INTEGER: u8 = 5;
 const UNSIGNED: u8 = 6;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct U24([u8; 3]);
+
+impl std::fmt::Debug for U24 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.into_usize())
+    }
+}
+
+impl std::fmt::Display for U24 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.into_usize())
+    }
+}
+
+impl PartialEq<usize> for U24 {
+    fn eq(&self, other: &usize) -> bool {
+        self.into_usize() == *other
+    }
+}
+
+impl PartialEq<U24> for usize {
+    fn eq(&self, other: &U24) -> bool {
+        *self == other.into_usize()
+    }
+}
+
+impl PartialEq<u32> for U24 {
+    fn eq(&self, other: &u32) -> bool {
+        self.into_u32() == *other
+    }
+}
+
+impl PartialEq<U24> for u32 {
+    fn eq(&self, other: &U24) -> bool {
+        *self == other.into_u32()
+    }
+}
+
+impl PartialOrd for U24 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.into_usize().partial_cmp(&other.into_usize())
+    }
+}
+
+impl Ord for U24 {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.into_usize().cmp(&other.into_usize())
+    }
+}
+
+impl std::hash::Hash for U24 {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.into_usize().hash(state)
+    }
+}
+
+impl Serialize for U24 {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u32(self.into_u32())
+    }
+}
+
+impl<'de> Deserialize<'de> for U24 {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let x = usize::deserialize(deserializer)?;
+        Ok(Self::new(x).map_err(serde::de::Error::custom)?)
+    }
+}
+
+#[inline(always)]
+fn u32_to_3_bytes(x: u32) -> [u8; 3] {
+    let bytes = x.to_ne_bytes();
+    let mut buf = [0; 3];
+
+    #[cfg(target_endian = "little")]
+    {
+        buf.copy_from_slice(&bytes[..3]);
+    }
+
+    #[cfg(target_endian = "big")]
+    {
+        buf.copy_from_slice(&bytes[1..]);
+    }
+
+    buf
+}
+
+#[inline(always)]
+fn u24_bytes_to_u32(bytes: [u8; 3]) -> u32 {
+    let mut buf = [0; 4];
+
+    #[cfg(target_endian = "little")]
+    {
+        buf[1..].copy_from_slice(&bytes);
+    }
+
+    #[cfg(target_endian = "big")]
+    {
+        buf[..3].copy_from_slice(&bytes);
+    }
+
+    u32::from_ne_bytes(buf)
+}
+
+impl U24 {
+    pub const MIN: usize = 0;
+    pub const MAX: usize = 0xFFFFFF;
+    pub const BITS: usize = 24;
+    pub const BYTE_COUNT: usize = 3;
+
+    pub fn new(x: usize) -> Result<Self> {
+        if x > Self::MAX {
+            anyhow::bail!("Value is too large for U24");
+        }
+
+        Ok(Self(u32_to_3_bytes(x as u32)))
+    }
+
+    pub fn into_u32(self) -> u32 {
+        u24_bytes_to_u32(self.0)
+    }
+
+    pub fn into_usize(self) -> usize {
+        self.into_u32() as usize
+    }
+
+    pub fn into_array(self) -> [u8; 3] {
+        self.0
+    }
+
+    pub fn from_array(bytes: [u8; 3]) -> Option<Self> {
+        let x = u24_bytes_to_u32(bytes);
+
+        if x > Self::MAX as u32 {
+            None
+        } else {
+            Some(Self(bytes))
+        }
+    }
+}
+
 /// Invariant: NaN, Infinity, and -Infinity are not valid numbers. Float will never be NaN, Infinity, or -Infinity.
 #[derive(Debug, Clone, Copy)]
 pub enum Number {
